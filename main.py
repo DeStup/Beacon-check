@@ -181,7 +181,7 @@ async def check_beacons():
 
 
 @bot.command()
-async def add(ctx, beacon_id: str, priority: int = 2, current_fuel: float = None):
+async def add(ctx, beacon_id: str, priority: int = 2, current_fuel: float = None, current_lifetime: float = None):
     """Добавить новый маяк
     Пример: !add BCN-001 30 100 2
     Приоритет: 1 - высокий, 2 - средний, 3 - низкий (по умолчанию 2)
@@ -195,7 +195,8 @@ async def add(ctx, beacon_id: str, priority: int = 2, current_fuel: float = None
         return
 
     current_fuel = current_fuel if current_fuel is not None else MAX_FUEL
-    current_lifetime = MAX_LIFETIME
+    current_lifetime = current_lifetime if current_lifetime is not None else MAX_LIFETIME
+
     if priority == 1:
         fuel_consumption_rate = 1
     elif priority == 2:
