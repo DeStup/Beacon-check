@@ -80,7 +80,7 @@ async def update_beacons():
         if hours_passed <= 0:
             continue
 
-        new_fuel = float(beacon['current_fuel']) - float(beacon['fuel_consumption_rate'] * hours_passed)
+        new_fuel = float(beacon['current_fuel']) - float(1/beacon['fuel_consumption_rate'] * hours_passed)
         new_lifetime = float(beacon['current_lifetime']) - (LIFETIME_DECAY_RATE * hours_passed)
 
         # Гарантируем, что значения не уйдут ниже 0
