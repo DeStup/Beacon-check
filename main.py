@@ -29,7 +29,7 @@ class SlashClient(discord.Client):
         self.tree = discord.app_commands.CommandTree(self)
 
     async def setup_hook(self) -> None:
-        guild = discord.Object(id=244915239978532867)
+        guild = discord.Object(id=os.getenv("GUILD"))
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
 
