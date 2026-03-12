@@ -36,7 +36,7 @@ class SlashClient(discord.Client):
 
 bot = SlashClient()
 
-
+#TODO вынести логику бд отдельно
 def get_db_connection():
     conn = sqlite3.connect('./data/beacons.db')
     conn.row_factory = sqlite3.Row
@@ -436,7 +436,7 @@ async def delete(interaction: discord.Interaction, beacon_id: str):
 
     conn.close()
 
-
+#TODO вынести View отдельно
 @bot.tree.command()
 async def clear(interaction: discord.Interaction):
     """Удалить все маяки (требуется подтверждение)"""
