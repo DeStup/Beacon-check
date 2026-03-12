@@ -3,7 +3,8 @@ import sqlite3
 from datetime import datetime
 
 import discord
-from discord.ext import commands, tasks
+from discord.ui import Button, View
+from discord.ext import tasks
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,7 +22,19 @@ LIFETIME_DECAY_RATE = 100 / 48  # 100% расходуется за 48 часа (
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+
+class SlashClient(discord.Client):
+    def __init__(self) -> None:
+        super().__init__(intents=discord.Intents.default())
+        self.tree = discord.app_commands.CommandTree(self)
+
+    async def setup_hook(self) -> None:
+        guild = discord.Object(id=244915239978532867)
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
+
+
+bot = SlashClient()
 
 
 def get_db_connection():
@@ -80,7 +93,7 @@ async def update_beacons():
         if hours_passed <= 0:
             continue
 
-        new_fuel = float(beacon['current_fuel']) - float(1/beacon['fuel_consumption_rate'] * hours_passed)
+        new_fuel = float(beacon['current_fuel']) - float(1 / beacon['fuel_consumption_rate'] * hours_passed)
         new_lifetime = float(beacon['current_lifetime']) - (LIFETIME_DECAY_RATE * hours_passed)
 
         # Гарантируем, что значения не уйдут ниже 0
@@ -180,15 +193,15 @@ async def check_beacons():
         conn.close()
 
 
-@bot.command()
-async def add(ctx, beacon_id: str, priority: int = 2, current_fuel: float = None, current_lifetime: float = None):
+@bot.tree.command(name="add", description="Добавить новый маяк")
+async def add(interaction: discord.Interaction,  beacon_id: str, priority: int = 2, current_fuel: float = None, current_lifetime: float = None):
     """Добавить новый маяк
     Пример: !add BCN-001 30 100 2
     Приоритет: 1 - высокий, 2 - средний, 3 - низкий (по умолчанию 2)
     """
     # Проверка приоритета
     if priority not in [1, 2, 3]:
-        await ctx.send("Ошибка: приоритет должен быть 1, 2 или 3\n"
+        await interaction.response.send_message("Ошибка: приоритет должен быть 1, 2 или 3\n"
                        "1 - высокий\n"
                        "2 - средний\n"
                        "3 - низкий")
@@ -207,7 +220,7 @@ async def add(ctx, beacon_id: str, priority: int = 2, current_fuel: float = None
         fuel_consumption_rate = 1.5
 
     if current_fuel > MAX_FUEL or current_lifetime > MAX_LIFETIME:
-        await ctx.send(f"Ошибка: значения не могут превышать {MAX_FUEL} для топлива и {MAX_LIFETIME}% для срока")
+        await interaction.response.send_message(f"Ошибка: значения не могут превышать {MAX_FUEL} для топлива и {MAX_LIFETIME}% для срока")
         return
 
     try:
@@ -225,20 +238,20 @@ async def add(ctx, beacon_id: str, priority: int = 2, current_fuel: float = None
         # Текстовое представление приоритета
         priority_text = {1: "🔴 Высокий", 2: "🟡 Средний", 3: "🟢 Низкий"}[priority]
 
-        await ctx.send(f"Маяк {beacon_id} успешно добавлен\n"
+        await interaction.response.send_message(f"Маяк {beacon_id} успешно добавлен\n"
                        f"🔋 Топливо: {current_fuel}\n"
                        f"🔄 Прочность: {current_lifetime}%\n"
                        f"📊 Приоритет: {priority_text}")
     except sqlite3.IntegrityError:
-        await ctx.send(f"Маяк {beacon_id} уже существует!")
+        await interaction.response.send_message(f"Маяк {beacon_id} уже существует!")
     except Exception as e:
-        await ctx.send(f"Ошибка: {str(e)}")
+        await interaction.response.send_message(f"Ошибка: {str(e)}")
     finally:
         conn.close()
 
 
-@bot.command()
-async def refuel(ctx, beacon_id: str, amount: float = None):
+@bot.tree.command()
+async def refuel(interaction: discord.Interaction, beacon_id: str, amount: float = None):
     """Пополнить топливо маяка по ID"""
     if amount is None:
         amount = MAX_FUEL
@@ -251,7 +264,7 @@ async def refuel(ctx, beacon_id: str, amount: float = None):
         result = cursor.fetchone()
 
         if not result:
-            await ctx.send(f"Маяк {beacon_id} не найден!")
+            await interaction.response.send_message(f"Маяк {beacon_id} не найден!")
             return
 
         current = float(result['current_fuel'])
@@ -269,15 +282,15 @@ async def refuel(ctx, beacon_id: str, amount: float = None):
         ''', (new_fuel, datetime.now().isoformat(), not reset_status, beacon_id))
 
         conn.commit()
-        await ctx.send(f"Топливо маяка {beacon_id} пополнено до {new_fuel}/{MAX_FUEL}")
+        await interaction.response.send_message(f"Топливо маяка {beacon_id} пополнено до {new_fuel}/{MAX_FUEL}")
     except Exception as e:
-        await ctx.send(f"Ошибка: {str(e)}")
+        await interaction.response.send_message(f"Ошибка: {str(e)}")
     finally:
         conn.close()
 
 
-@bot.command()
-async def status(ctx, beacon_id: str = None):
+@bot.tree.command()
+async def status(interaction: discord.Interaction, beacon_id: str = None):
     """Показать статус маяка по ID или всех маяков"""
     global priority_text
     conn = get_db_connection()
@@ -289,10 +302,10 @@ async def status(ctx, beacon_id: str = None):
             beacon = cursor.fetchone()
 
             if not beacon:
-                await ctx.send(f"Маяк {beacon_id} не найден или уже сгнил!")
+                await interaction.response.send_message(f"Маяк {beacon_id} не найден или уже сгнил!")
                 return
 
-            hours_remaining_fuel = beacon['current_fuel']* beacon['fuel_consumption_rate']
+            hours_remaining_fuel = beacon['current_fuel'] * beacon['fuel_consumption_rate']
             hours_remaining_lifetime = beacon['current_lifetime'] / LIFETIME_DECAY_RATE
             if beacon['fuel_consumption_rate'] == 2:
                 priority_text = "🟢 Низкий(3)"
@@ -307,7 +320,7 @@ async def status(ctx, beacon_id: str = None):
             else:
                 status_msg = f"⏳ осталось ~{hours_remaining_lifetime:.1f} часов"
 
-            await ctx.send(
+            await interaction.response.send_message(
                 f"Статус маяка {beacon['beacon_id']}:\n"
                 f"🔋 Топливо: ~{beacon['current_fuel']:.0f}"
                 f"(⏳ Осталось ~{hours_remaining_fuel:.1f} часов)\n"
@@ -319,7 +332,7 @@ async def status(ctx, beacon_id: str = None):
             beacons = cursor.fetchall()
 
             if not beacons:
-                await ctx.send("Нет активных маяков")
+                await interaction.response.send_message("Нет активных маяков")
                 return
 
             message = "Статус всех маяков:\n\n"
@@ -337,15 +350,15 @@ async def status(ctx, beacon_id: str = None):
                     f"📊 Приоритет: {priority_text}\n\n"
                 )
 
-            await ctx.send(message)
+            await interaction.response.send_message(message)
     except Exception as e:
-        await ctx.send(f"Ошибка: {str(e)}")
+        await interaction.response.send_message(f"Ошибка: {str(e)}")
     finally:
         conn.close()
 
 
-@bot.command()
-async def edit(ctx, beacon_id: str, priority: int = 2, current_fuel: float = None, current_lifetime: float = None):
+@bot.tree.command()
+async def edit(interaction: discord.Interaction, beacon_id: str, priority: int = 2, current_fuel: float = None, current_lifetime: float = None):
     """Редактировать данные маяка по ID"""
     updates = []
     params = []
@@ -353,7 +366,7 @@ async def edit(ctx, beacon_id: str, priority: int = 2, current_fuel: float = Non
 
     if priority is not None:
         if priority not in [1, 2, 3]:
-            await ctx.send("Ошибка: приоритет должен быть 1, 2 или 3\n"
+            await interaction.response.send_message("Ошибка: приоритет должен быть 1, 2 или 3\n"
                            "1 - высокий\n2 - средний\n3 - низкий")
             return
         # Вычисляем новый расход топлива
@@ -368,7 +381,7 @@ async def edit(ctx, beacon_id: str, priority: int = 2, current_fuel: float = Non
 
     if current_fuel is not None:
         if current_fuel > MAX_FUEL:
-            await ctx.send(f"Ошибка: значение топлива не может превышать {MAX_FUEL}")
+            await interaction.response.send_message(f"Ошибка: значение топлива не может превышать {MAX_FUEL}")
             return
         updates.append("current_fuel = ?")
         params.append(current_fuel)
@@ -376,14 +389,14 @@ async def edit(ctx, beacon_id: str, priority: int = 2, current_fuel: float = Non
 
     if current_lifetime is not None:
         if current_lifetime > MAX_LIFETIME:
-            await ctx.send(f"Ошибка: срок действия не может превышать {MAX_LIFETIME}")
+            await interaction.response.send_message(f"Ошибка: срок действия не может превышать {MAX_LIFETIME}")
             return
         updates.append("current_lifetime = ?")
         params.append(current_lifetime)
         reset_status = reset_status or (current_lifetime >= 20)
 
     if not updates:
-        await ctx.send("Не указаны данные для обновления!")
+        await interaction.response.send_message("Не указаны данные для обновления!")
         return
 
     # Добавляем обновление статуса уведомления
@@ -400,15 +413,15 @@ async def edit(ctx, beacon_id: str, priority: int = 2, current_fuel: float = Non
         conn.commit()
 
         if cursor.rowcount == 0:
-            await ctx.send(f"Маяк {beacon_id} не найден!")
+            await interaction.response.send_message(f"Маяк {beacon_id} не найден!")
         else:
-            await ctx.send(f"Данные маяка {beacon_id} успешно обновлены!")
+            await interaction.response.send_message(f"Данные маяка {beacon_id} успешно обновлены!")
     finally:
         conn.close()
 
 
-@bot.command()
-async def delete(ctx, beacon_id: str):
+@bot.tree.command()
+async def delete(interaction: discord.Interaction, beacon_id: str):
     """Удалить маяк по ID"""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -417,41 +430,115 @@ async def delete(ctx, beacon_id: str):
     conn.commit()
 
     if cursor.rowcount == 0:
-        await ctx.send(f"Маяк с ID {beacon_id} не найден!")
+        await interaction.response.send_message(f"Маяк с ID {beacon_id} не найден!")
     else:
-        await ctx.send(f"Маяк {beacon_id} успешно удалён!")
+        await interaction.response.send_message(f"Маяк {beacon_id} успешно удалён!")
 
     conn.close()
 
 
-@bot.command()
-async def clear(ctx):
+@bot.tree.command()
+async def clear(interaction: discord.Interaction):
     """Удалить все маяки (требуется подтверждение)"""
-    await ctx.send("Вы уверены, что хотите удалить ВСЕ маяки? Напишите 'да' для продолжения.")
+    has_permission = False
+    allowed_user_ids = [226751097295994881]
 
-    def check(m):
-        return m.author == ctx.author and m.channel == ctx.channel and m.content.lower() == 'да'
+    if interaction.user.id in allowed_user_ids:
+        has_permission = True
+        print(f"Доступ разрешен по ID: {interaction.user.id}")
 
-    try:
-        await bot.wait_for('message', check=check, timeout=30.0)
-    except TimeoutError:
-        await ctx.send("Время ожидания истекло. Очистка отменена.")
+    elif (interaction.user.guild_permissions.administrator or
+          interaction.user.guild_permissions.manage_guild or
+          interaction.user.guild_permissions.manage_channels):
+        has_permission = True
+
+    if not has_permission:
+        embed = discord.Embed(
+            title="❌ Доступ запрещен",
+            description="У вас нет прав для выполнения этой команды!",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM beacons')
-        conn.commit()
-        await ctx.send("Все маяки успешно удалены!")
-    finally:
-        conn.close()
+    # Создаем кнопки для подтверждения
+    class ConfirmView(View):
+        def __init__(self):
+            super().__init__(timeout=30)
+
+        @discord.ui.button(label="Да", style=discord.ButtonStyle.green, emoji="✅")
+        async def confirm_button(self, button_interaction: discord.Interaction, button: Button):
+            if button_interaction.user.id != interaction.user.id:
+                await button_interaction.response.send_message("Вы не можете подтвердить чужую команду!",
+                                                               ephemeral=True)
+                return
+
+            try:
+                conn = get_db_connection()
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM beacons')
+                conn.commit()
+
+                embed = discord.Embed(
+                    title="✅ Успешно",
+                    description="Все маяки успешно удалены!",
+                    color=discord.Color.green()
+                )
+                await button_interaction.response.edit_message(embed=embed, view=None)
+            except Exception as e:
+                embed = discord.Embed(
+                    title="❌ Ошибка",
+                    description=f"Произошла ошибка при удалении: {str(e)}",
+                    color=discord.Color.red()
+                )
+                await button_interaction.response.edit_message(embed=embed, view=None)
+            finally:
+                conn.close()
+
+        @discord.ui.button(label="Нет", style=discord.ButtonStyle.red, emoji="❌")
+        async def cancel_button(self, button_interaction: discord.Interaction, button: Button):
+            if button_interaction.user.id != interaction.user.id:
+                await button_interaction.response.send_message("Вы не можете отменить чужую команду!", ephemeral=True)
+                return
+
+            embed = discord.Embed(
+                title="❌ Отменено",
+                description="Очистка маяков отменена.",
+                color=discord.Color.red()
+            )
+            await button_interaction.response.edit_message(embed=embed, view=None)
+
+        async def on_timeout(self):
+            # При таймауте деактивируем кнопки
+            for item in self.children:
+                item.disabled = True
+            try:
+                embed = discord.Embed(
+                    title="⌛ Время истекло",
+                    description="Время подтверждения истекло. Очистка отменена.",
+                    color=discord.Color.orange()
+                )
+                await interaction.edit_original_response(embed=embed, view=self)
+            except:
+                pass
+
+    # Создаем embed с запросом подтверждения
+    embed = discord.Embed(
+        title="⚠️ Подтверждение действия",
+        description="Вы уверены, что хотите удалить **ВСЕ** маяки?\nЭто действие нельзя отменить!",
+        color=discord.Color.yellow()
+    )
+    embed.set_footer(text="У вас есть 30 секунд на подтверждение")
+
+    # Отправляем сообщение с кнопками
+    view = ConfirmView()
+    await interaction.response.send_message(embed=embed, view=view)
 
 
-@bot.command()
-async def ping(ctx):
+@bot.tree.command()
+async def ping(interaction: discord.Interaction):
     """Бот жив?"""
-    await ctx.send("pong")
+    await interaction.response.send_message("pong")
 
 
 bot.run(os.getenv("TOKEN"))
