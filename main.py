@@ -770,7 +770,8 @@ class BeaconSelect(Select):
         # Получаем список маяков из БД
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate FROM beacons ORDER BY beacon_id')
+        cursor.execute(
+            'SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate FROM beacons ORDER BY beacon_id')
         beacons = cursor.fetchall()
         conn.close()
 
@@ -785,7 +786,19 @@ class BeaconSelect(Select):
             ]
         else:
             options = []
-            for beacon in beacons[:25]:  # Discord ограничивает 25 опциями
+
+            # Добавляем опцию "Показать все" только для статуса
+            if action_type == "status":
+                options.append(
+                    discord.SelectOption(
+                        label="📊 Показать все маяки",
+                        value="all",
+                        description="Показать статус всех маяков",
+                        emoji="📋"
+                    )
+                )
+
+            for beacon in beacons[:24]:  # Оставляем место для опции "все"
                 beacon_id = beacon['beacon_id']
                 fuel = beacon['current_fuel']
                 lifetime = beacon['current_lifetime']
@@ -816,7 +829,6 @@ class BeaconSelect(Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        """Обработка выбора"""
         if self.values[0] == "none":
             await interaction.response.send_message(
                 "❌ Нет активных маяков. Сначала добавьте маяк через `/add`",
@@ -826,7 +838,17 @@ class BeaconSelect(Select):
 
         beacon_id = self.values[0]
 
-        # Открываем соответствующее модальное окно
+        # Обработка для статуса
+        if self.action_type == "status":
+            if beacon_id == "all":
+                # Показать все маяки
+                await show_all_beacons_status(interaction)
+            else:
+                # Показать статус конкретного маяка
+                await show_beacon_status(interaction, beacon_id)
+            return
+
+        # Открываем соответствующее модальное окно для других действий
         if self.action_type == "refuel":
             await interaction.response.send_modal(RefuelModal(beacon_id))
         elif self.action_type == "edit":
@@ -841,6 +863,138 @@ class BeaconSelect(Select):
             color=discord.Color.green()
         )
         await interaction.edit_original_response(embed=embed, view=None)
+
+
+
+async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
+    """Показать статус конкретного маяка"""
+    user_info = get_user_info(interaction)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute('SELECT * FROM beacons WHERE beacon_id = ?', (beacon_id,))
+        beacon = cursor.fetchone()
+
+        if not beacon:
+            await interaction.response.send_message(
+                f"❌ Маяк {beacon_id} не найден!",
+                ephemeral=True
+            )
+            return
+
+        action_logger.info(f"{user_info} checked status of beacon {beacon_id}")
+
+        hours_remaining_fuel = beacon['current_fuel'] * beacon['fuel_consumption_rate']
+        hours_remaining_lifetime = beacon['current_lifetime'] / LIFETIME_DECAY_RATE
+
+        if beacon['fuel_consumption_rate'] == 2:
+            priority_text = "🟢 Низкий(3)"
+        elif beacon['fuel_consumption_rate'] == 1.5:
+            priority_text = "🟡 Средний(2)"
+        elif beacon['fuel_consumption_rate'] == 1:
+            priority_text = "🔴 Высокий(1)"
+
+        # Специальное сообщение для почти сгнивших маяков
+        if beacon['current_lifetime'] <= 5:
+            status_msg = "🔴 КРИТИЧЕСКИЙ УРОВЕНЬ - скоро сгниет!"
+        else:
+            status_msg = f"⏳ осталось ~{hours_remaining_lifetime:.1f} часов"
+
+        embed = discord.Embed(
+            title=f"📊 Статус маяка {beacon['beacon_id']}",
+            color=discord.Color.blue()
+        )
+        embed.add_field(
+            name="🔋 Топливо",
+            value=f"~{beacon['current_fuel']:.0f} (⏳ ~{hours_remaining_fuel:.1f} ч)",
+            inline=True
+        )
+        embed.add_field(
+            name="🔄 Прочность",
+            value=f"{beacon['current_lifetime']:.2f}%\n{status_msg}",
+            inline=True
+        )
+        embed.add_field(
+            name="📊 Приоритет",
+            value=priority_text,
+            inline=True
+        )
+
+        # Добавляем полоски прогресса
+        fuel_percent = (beacon['current_fuel'] / MAX_FUEL) * 100
+        fuel_bar = "█" * int(fuel_percent / 10) + "░" * (10 - int(fuel_percent / 10))
+        lifetime_bar = "█" * int(beacon['current_lifetime'] / 10) + "░" * (10 - int(beacon['current_lifetime'] / 10))
+
+        embed.add_field(
+            name="📊 Детально",
+            value=f"🔋 {fuel_bar} {beacon['current_fuel']:.1f}/{MAX_FUEL}\n🔄 {lifetime_bar} {beacon['current_lifetime']:.1f}%",
+            inline=False
+        )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    except Exception as e:
+        error_msg = f"Ошибка при просмотре статуса: {str(e)}"
+        error_logger.error(f"{user_info} {error_msg}", exc_info=True)
+        await interaction.response.send_message(f"❌ Ошибка: {str(e)}", ephemeral=True)
+    finally:
+        conn.close()
+
+
+async def show_all_beacons_status(interaction: discord.Interaction):
+    """Показать статус всех маяков"""
+    user_info = get_user_info(interaction)
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute('SELECT * FROM beacons ORDER BY beacon_id')
+        beacons = cursor.fetchall()
+
+        if not beacons:
+            action_logger.info(f"{user_info} checked status - no active beacons")
+            await interaction.response.send_message(
+                "📭 Нет активных маяков",
+                ephemeral=True
+            )
+            return
+
+        action_logger.info(f"{user_info} checked status of all beacons ({len(beacons)} active)")
+
+        embed = discord.Embed(
+            title="📊 Статус всех маяков",
+            color=discord.Color.blue()
+        )
+
+        for beacon in beacons:
+            if beacon['fuel_consumption_rate'] == 2:
+                priority_text = "🟢"
+            elif beacon['fuel_consumption_rate'] == 1.5:
+                priority_text = "🟡"
+            elif beacon['fuel_consumption_rate'] == 1:
+                priority_text = "🔴"
+
+            fuel_percent = (beacon['current_fuel'] / MAX_FUEL) * 100
+            fuel_bar = "█" * int(fuel_percent / 10) + "░" * (10 - int(fuel_percent / 10))
+
+            lifetime_bar = "█" * int(beacon['current_lifetime'] / 10) + "░" * (
+                        10 - int(beacon['current_lifetime'] / 10))
+
+            embed.add_field(
+                name=f"{priority_text} {beacon['beacon_id']}",
+                value=f"🔋 {fuel_bar} {beacon['current_fuel']:.1f}/{MAX_FUEL}\n🔄 {lifetime_bar} {beacon['current_lifetime']:.1f}%",
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    except Exception as e:
+        error_msg = f"Ошибка при просмотре статуса: {str(e)}"
+        error_logger.error(f"{user_info} {error_msg}", exc_info=True)
+        await interaction.response.send_message(f"❌ Ошибка: {str(e)}", ephemeral=True)
+    finally:
+        conn.close()
 
 
 # ============== КЛАСС ДЛЯ МЕНЮ С КНОПКАМИ ==============
@@ -885,57 +1039,6 @@ class BeaconMenuView(View):
     @discord.ui.button(label="Статус", style=discord.ButtonStyle.secondary, emoji="📊", row=0)
     async def status_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка просмотра статуса"""
-        # Показываем статус всех маяков
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
-        try:
-            cursor.execute('SELECT * FROM beacons ORDER BY beacon_id')
-            beacons = cursor.fetchall()
-
-            if not beacons:
-                await interaction.response.send_message(
-                    "📭 Нет активных маяков",
-                    ephemeral=True
-                )
-                return
-
-            embed = discord.Embed(
-                title="📊 Статус всех маяков",
-                color=discord.Color.blue()
-            )
-
-            for beacon in beacons:
-                if beacon['fuel_consumption_rate'] == 2:
-                    priority_text = "🟢 Низкий(3)"
-                elif beacon['fuel_consumption_rate'] == 1.5:
-                    priority_text = "🟡 Средний(2)"
-                elif beacon['fuel_consumption_rate'] == 1:
-                    priority_text = "🔴 Высокий(1)"
-
-                fuel_percent = (beacon['current_fuel'] / MAX_FUEL) * 100
-                fuel_bar = "█" * int(fuel_percent / 10) + "░" * (10 - int(fuel_percent / 10))
-
-                lifetime_bar = "█" * int(beacon['current_lifetime'] / 10) + "░" * (
-                            10 - int(beacon['current_lifetime'] / 10))
-
-                embed.add_field(
-                    name=f"{beacon['beacon_id']} {priority_text}",
-                    value=f"🔋 Топливо: {fuel_bar} {beacon['current_fuel']:.1f}/{MAX_FUEL}\n"
-                          f"🔄 Прочность: {lifetime_bar} {beacon['current_lifetime']:.1f}%",
-                    inline=False
-                )
-
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Ошибка: {str(e)}", ephemeral=True)
-        finally:
-            conn.close()
-
-    @discord.ui.button(label="Редактировать", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
-    async def edit_button(self, interaction: discord.Interaction, button: Button):
-        """Кнопка редактирования маяка с выбором из списка"""
         # Проверяем, есть ли маяки
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -945,18 +1048,18 @@ class BeaconMenuView(View):
 
         if count == 0:
             await interaction.response.send_message(
-                "❌ Нет активных маяков для редактирования!",
+                "📭 Нет активных маяков",
                 ephemeral=True
             )
             return
 
         embed = discord.Embed(
-            title="✏️ Редактирование маяка",
-            description="Выберите маяк из списка ниже:",
+            title="📊 Просмотр статуса маяка",
+            description="Выберите маяк для просмотра детального статуса\nили выберите 'Показать все маяки' для общего обзора",
             color=discord.Color.blue()
         )
 
-        view = BeaconSelectView("edit", interaction.user.id)
+        view = BeaconSelectView("status", interaction.user.id)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="Удалить", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
@@ -1200,97 +1303,32 @@ async def refuel(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 @bot.tree.command(name="status", description="Показать статус маяка")
-@app_commands.autocomplete(beacon_id=get_beacon_ids)
-async def status(interaction: discord.Interaction, beacon_id: str = None):
-    """Показать статус маяка по ID или всех маяков"""
+async def status(interaction: discord.Interaction):
+    """Показать статус маяка через интерфейс выбора"""
     user_info = get_user_info(interaction)
+
+    # Проверяем, есть ли маяки
     conn = get_db_connection()
     cursor = conn.cursor()
+    cursor.execute('SELECT COUNT(*) as count FROM beacons')
+    count = cursor.fetchone()['count']
+    conn.close()
 
-    try:
-        if beacon_id:
-            cursor.execute('SELECT * FROM beacons WHERE beacon_id = ?', (beacon_id,))
-            beacon = cursor.fetchone()
+    if count == 0:
+        await interaction.response.send_message(
+            "📭 Нет активных маяков",
+            ephemeral=True
+        )
+        return
 
-            if not beacon:
-                await interaction.response.send_message(
-                    f"Маяк {beacon_id} не найден или уже сгнил!"
-                )
-                return
+    embed = discord.Embed(
+        title="📊 Просмотр статуса маяка",
+        description="Выберите маяк для просмотра детального статуса\nили выберите 'Показать все маяки' для общего обзора",
+        color=discord.Color.blue()
+    )
 
-            # Логируем просмотр статуса конкретного маяка
-            action_logger.info(f"{user_info} checked status of beacon {beacon_id}")
-
-            hours_remaining_fuel = beacon['current_fuel'] * beacon['fuel_consumption_rate']
-            hours_remaining_lifetime = beacon['current_lifetime'] / LIFETIME_DECAY_RATE
-
-            if beacon['fuel_consumption_rate'] == 2:
-                priority_text = "🟢 Низкий(3)"
-            elif beacon['fuel_consumption_rate'] == 1.5:
-                priority_text = "🟡 Средний(2)"
-            elif beacon['fuel_consumption_rate'] == 1:
-                priority_text = "🔴 Высокий(1)"
-
-            # Специальное сообщение для почти сгнивших маяков
-            if beacon['current_lifetime'] <= 5:
-                status_msg = "🔴 КРИТИЧЕСКИЙ УРОВЕНЬ - скоро сгниет!"
-            else:
-                status_msg = f"⏳ осталось ~{hours_remaining_lifetime:.1f} часов"
-
-            await interaction.response.send_message(
-                f"Статус маяка {beacon['beacon_id']}:\n"
-                f"🔋 Топливо: ~{beacon['current_fuel']:.0f} "
-                f"(⏳ Осталось ~{hours_remaining_fuel:.1f} часов)\n"
-                f"🔄 Прочность: {beacon['current_lifetime']:.2f}% ({status_msg})\n"
-                f"📊 Приоритет: {priority_text}"
-            )
-
-        else:
-            cursor.execute('SELECT * FROM beacons ORDER BY beacon_id')
-            beacons = cursor.fetchall()
-
-            if not beacons:
-                action_logger.info(f"{user_info} checked status - no active beacons")
-                await interaction.response.send_message("Нет активных маяков")
-                return
-
-            # Логируем просмотр статуса всех маяков
-            action_logger.info(f"{user_info} checked status of all beacons ({len(beacons)} active)")
-
-            embed = discord.Embed(
-                title="📊 Статус всех маяков",
-                color=discord.Color.blue()
-            )
-
-            for beacon in beacons:
-                if beacon['fuel_consumption_rate'] == 2:
-                    priority_text = "🟢 Низкий(3)"
-                elif beacon['fuel_consumption_rate'] == 1.5:
-                    priority_text = "🟡 Средний(2)"
-                elif beacon['fuel_consumption_rate'] == 1:
-                    priority_text = "🔴 Высокий(1)"
-
-                fuel_percent = (beacon['current_fuel'] / MAX_FUEL) * 100
-                fuel_bar = "█" * int(fuel_percent / 10) + "░" * (10 - int(fuel_percent / 10))
-
-                lifetime_bar = "█" * int(beacon['current_lifetime'] / 10) + "░" * (
-                            10 - int(beacon['current_lifetime'] / 10))
-
-                embed.add_field(
-                    name=f"{beacon['beacon_id']} {priority_text}",
-                    value=f"🔋 Топливо: {fuel_bar} {beacon['current_fuel']:.1f}/{MAX_FUEL}\n"
-                          f"🔄 Прочность: {lifetime_bar} {beacon['current_lifetime']:.1f}%",
-                    inline=False
-                )
-
-            await interaction.response.send_message(embed=embed)
-
-    except Exception as e:
-        error_msg = f"Ошибка при просмотре статуса: {str(e)}"
-        error_logger.error(f"{user_info} {error_msg}", exc_info=True)
-        await interaction.response.send_message(f"Ошибка: {str(e)}")
-    finally:
-        conn.close()
+    view = BeaconSelectView("status", interaction.user.id)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 @bot.tree.command(name="edit", description="Редактировать данные маяка")
