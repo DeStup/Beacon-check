@@ -1,7 +1,9 @@
 import os
 import sqlite3
 from datetime import datetime
-from typing import List, Optional
+from typing import List
+import logging
+from logging.handlers import RotatingFileHandler
 
 import discord
 from discord.ui import Button, View, Modal, TextInput, Select
@@ -10,6 +12,48 @@ from discord import app_commands
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Настройка логирования
+LOG_DIR = './logs'
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
+
+# Формат логов
+log_formatter = logging.Formatter(
+    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+# Основной логгер для действий
+action_logger = logging.getLogger('beacon_actions')
+action_handler = RotatingFileHandler(
+    f'{LOG_DIR}/actions.log',
+    maxBytes=10*1024*1024,  # 10 MB
+    backupCount=5,
+    encoding='utf-8'
+)
+action_handler.setFormatter(log_formatter)
+action_logger.addHandler(action_handler)
+action_logger.setLevel(logging.INFO)
+
+# Логгер для ошибок
+error_logger = logging.getLogger('beacon_errors')
+error_handler = RotatingFileHandler(
+    f'{LOG_DIR}/errors.log',
+    maxBytes=10*1024*1024,  # 10 MB
+    backupCount=5,
+    encoding='utf-8'
+)
+error_handler.setFormatter(log_formatter)
+error_logger.addHandler(error_handler)
+error_logger.setLevel(logging.ERROR)
+
+# Функция для получения информации о пользователе
+def get_user_info(interaction):
+    """Возвращает строку с информацией о пользователе"""
+    return f"User: {interaction.user.name} (ID: {interaction.user.id})"
+
+
 # Константы
 MAX_FUEL = 30  # Максимальное значение топлива (единицы)
 MAX_LIFETIME = 100  # Максимальный срок действия (проценты)
@@ -63,10 +107,15 @@ def init_db():
 
 init_db()
 
+def get_user_info(interaction):
+    """Возвращает строку с информацией о пользователе"""
+    return f"User: {interaction.user.name} (ID: {interaction.user.id})"
 
+@bot.event
 @bot.event
 async def on_ready():
     print(f'Бот {bot.user} запущен!')
+    action_logger.info(f'Bot {bot.user} started!')
     update_beacons.start()
     check_beacons.start()
 
@@ -86,6 +135,7 @@ async def update_beacons():
     beacons = cursor.fetchall()
 
     now = datetime.now().isoformat()
+    updated_count = 0
 
     for beacon in beacons:
         hours_passed = calculate_decay(beacon['last_updated'])
@@ -97,17 +147,31 @@ async def update_beacons():
         new_lifetime = float(beacon['current_lifetime']) - (LIFETIME_DECAY_RATE * hours_passed)
 
         # Гарантируем, что значения не уйдут ниже 0
+        old_fuel = beacon['current_fuel']
+        old_lifetime = beacon['current_lifetime']
         new_fuel = max(0, new_fuel)
         new_lifetime = max(0, new_lifetime)
+
+        # Логируем значительные изменения (больше 5%)
+        if old_fuel - new_fuel > 1.5 or old_lifetime - new_lifetime > 5:
+            action_logger.debug(
+                f"Auto-update beacon {beacon['beacon_id']}: "
+                f"Fuel {old_fuel:.1f}→{new_fuel:.1f}, "
+                f"Lifetime {old_lifetime:.1f}→{new_lifetime:.1f}"
+            )
 
         cursor.execute('''
             UPDATE beacons 
             SET current_fuel = ?, current_lifetime = ?, last_updated = ?
             WHERE id = ?
         ''', (new_fuel, new_lifetime, now, beacon['id']))
+        updated_count += 1
 
     conn.commit()
     conn.close()
+
+    if updated_count > 0:
+        action_logger.debug(f"Auto-update completed for {updated_count} beacons")
 
 
 @tasks.loop(minutes=1)
@@ -139,6 +203,7 @@ async def check_beacons():
                 await channel.send(
                     f"🗑️ Маяк {beacon_id} полностью сгнил и был автоматически удалён"
                 )
+                action_logger.info(f"Auto-deleted beacon {beacon_id}: lifetime reached 0")
                 cursor.execute('DELETE FROM beacons WHERE beacon_id = ?', (beacon_id,))
                 conn.commit()
                 continue
@@ -185,8 +250,12 @@ async def check_beacons():
                     f"✅ Маяк {beacon_id} восстановил нормальные показатели"
                 )
 
+                action_logger.info(f"Beacon {beacon_id} recovered to normal status")
+
     except Exception as e:
-        print(f"[ОШИБКА] check_beacons: {str(e)}")
+        error_msg = f"Ошибка в check_beacons: {str(e)}"
+        error_logger.error(error_msg, exc_info=True)
+        print(f"[ОШИБКА] {error_msg}")
         raise
 
     finally:
@@ -288,16 +357,20 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        user_info = get_user_info(interaction)
+
         # Проверка приоритета
         try:
             priority = int(self.priority.value)
             if priority not in [1, 2, 3]:
+                action_logger.warning(f"{user_info} modal add: invalid priority {priority}")
                 await interaction.response.send_message(
                     "❌ Ошибка: приоритет должен быть 1, 2 или 3",
                     ephemeral=True
                 )
                 return
         except ValueError:
+            action_logger.warning(f"{user_info} modal add: priority not a number")
             await interaction.response.send_message(
                 "❌ Ошибка: приоритет должен быть числом",
                 ephemeral=True
@@ -309,6 +382,9 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
         current_lifetime = float(self.lifetime.value) if self.lifetime.value else MAX_LIFETIME
 
         if current_fuel > MAX_FUEL or current_lifetime > MAX_LIFETIME:
+            action_logger.warning(
+                f"{user_info} modal add: values too high - fuel={current_fuel}, lifetime={current_lifetime}"
+            )
             await interaction.response.send_message(
                 f"❌ Ошибка: значения не могут превышать {MAX_FUEL} для топлива и {MAX_LIFETIME}% для срока",
                 ephemeral=True
@@ -334,6 +410,12 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
             )
             conn.commit()
 
+            # Логируем успешное добавление через модалку
+            action_logger.info(
+                f"{user_info} modal added beacon {self.beacon_id.value} | "
+                f"Fuel: {current_fuel}/{MAX_FUEL}, Lifetime: {current_lifetime}%, Priority: {priority}"
+            )
+
             priority_text = {1: "🔴 Высокий", 2: "🟡 Средний", 3: "🟢 Низкий"}[priority]
 
             embed = discord.Embed(
@@ -348,11 +430,14 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
             await interaction.response.send_message(embed=embed)
 
         except sqlite3.IntegrityError:
+            action_logger.warning(f"{user_info} modal add: beacon {self.beacon_id.value} already exists")
             await interaction.response.send_message(
                 f"❌ Маяк {self.beacon_id.value} уже существует!",
                 ephemeral=True
             )
         except Exception as e:
+            error_msg = f"Ошибка в modal add: {str(e)}"
+            error_logger.error(f"{user_info} {error_msg}", exc_info=True)
             await interaction.response.send_message(f"❌ Ошибка: {str(e)}", ephemeral=True)
         finally:
             conn.close()
@@ -413,6 +498,11 @@ class RefuelModal(Modal, title="⛽ Заправка маяка"):
 
             conn.commit()
 
+            action_logger.info(
+                f"{get_user_info(interaction)} modal refueled beacon {self.beacon_id_input.value} | "
+                f"Added: {amount}, Old: {current:.1f}, New: {new_fuel:.1f}/{MAX_FUEL}"
+            )
+
             embed = discord.Embed(
                 title="⛽ Заправка выполнена",
                 description=f"Маяк **{self.beacon_id_input.value}**",
@@ -469,6 +559,7 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
         updates = []
         params = []
         reset_status = False
+        changes = []  # ← ЭТО БЫЛО ПРОПУЩЕНО
 
         # Обработка приоритета
         if self.priority_input.value:
@@ -490,6 +581,7 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
 
                 updates.append("fuel_consumption_rate = ?")
                 params.append(fuel_consumption_rate)
+                changes.append(f"priority={priority}")  # ← ДОБАВЛЕНО
             except ValueError:
                 await interaction.response.send_message(
                     "❌ Ошибка: приоритет должен быть числом",
@@ -509,6 +601,7 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                     return
                 updates.append("current_fuel = ?")
                 params.append(new_fuel)
+                changes.append(f"fuel={new_fuel}")  # ← ДОБАВЛЕНО
                 reset_status = reset_status or ((new_fuel / MAX_FUEL) * 100 >= 20)
             except ValueError:
                 await interaction.response.send_message(
@@ -529,6 +622,7 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                     return
                 updates.append("current_lifetime = ?")
                 params.append(new_lifetime)
+                changes.append(f"lifetime={new_lifetime}")  # ← ДОБАВЛЕНО
                 reset_status = reset_status or (new_lifetime >= 20)
             except ValueError:
                 await interaction.response.send_message(
@@ -565,6 +659,10 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
             else:
                 await interaction.response.send_message(
                     f"✅ Данные маяка {self.beacon_id_input.value} успешно обновлены!"
+                )
+                # ← ТЕПЕРЬ changes ОПРЕДЕЛЕНА И ЗАПОЛНЕНА
+                action_logger.info(
+                    f"{get_user_info(interaction)} modal edited beacon {self.beacon_id_input.value}: {', '.join(changes)}"
                 )
         except Exception as e:
             await interaction.response.send_message(f"❌ Ошибка: {str(e)}", ephemeral=True)
@@ -635,6 +733,7 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
                 description=f"Маяк **{beacon_id}** успешно удалён",
                 color=discord.Color.green()
             )
+            action_logger.info(f"{get_user_info(interaction)} modal deleted beacon {beacon_id}")
             await interaction.response.send_message(embed=embed)
 
         except Exception as e:
@@ -981,16 +1080,38 @@ class BeaconMenuView(View):
                 try:
                     conn = get_db_connection()
                     cursor = conn.cursor()
+
+                    # Получаем список маяков до удаления
+                    cursor.execute('SELECT beacon_id FROM beacons')
+                    beacons = cursor.fetchall()
+                    beacon_list = [b['beacon_id'] for b in beacons]
+                    count_before = len(beacon_list)
+
+                    # Выполняем удаление
                     cursor.execute('DELETE FROM beacons')
                     conn.commit()
 
+                    # ===== ЛОГИРОВАНИЕ ОЧИСТКИ =====
+                    if count_before > 0:
+                        action_logger.info(
+                            f"{get_user_info(btn_interaction)} cleared ALL beacons via menu button | "
+                            f"Deleted: {count_before} beacons: {', '.join(beacon_list)}"
+                        )
+                    else:
+                        action_logger.info(
+                            f"{get_user_info(btn_interaction)} tried to clear via menu button but no beacons to delete"
+                        )
+
                     embed = discord.Embed(
                         title="✅ Успешно",
-                        description="Все маяки успешно удалены!",
+                        description=f"Все маяки ({count_before}) успешно удалены!",
                         color=discord.Color.green()
                     )
                     await btn_interaction.response.edit_message(embed=embed, view=None)
+
                 except Exception as e:
+                    error_msg = f"Ошибка при очистке всех маяков: {str(e)}"
+                    error_logger.error(f"{get_user_info(btn_interaction)} {error_msg}", exc_info=True)
                     embed = discord.Embed(
                         title="❌ Ошибка",
                         description=f"Произошла ошибка при удалении: {str(e)}",
@@ -1009,6 +1130,9 @@ class BeaconMenuView(View):
                     )
                     return
 
+                # ===== ЛОГИРОВАНИЕ ОТМЕНЫ =====
+                action_logger.info(f"{get_user_info(btn_interaction)} cancelled clear all beacons via menu button")
+
                 embed = discord.Embed(
                     title="❌ Отменено",
                     description="Очистка маяков отменена.",
@@ -1020,6 +1144,9 @@ class BeaconMenuView(View):
                 for item in self.children:
                     item.disabled = True
                 try:
+                    # ===== ЛОГИРОВАНИЕ ТАЙМАУТА =====
+                    action_logger.info(f"{get_user_info(interaction)} clear command via menu button timed out")
+
                     embed = discord.Embed(
                         title="⌛ Время истекло",
                         description="Время подтверждения истекло. Очистка отменена.",
@@ -1073,12 +1200,12 @@ async def menu(interaction: discord.Interaction):
 @bot.tree.command(name="add", description="Добавить новый маяк")
 async def add(interaction: discord.Interaction, beacon_id: str = None, priority: int = 2,
               current_fuel: float = None, current_lifetime: float = None):
-    """Добавить новый маяк
-    Пример: !add BCN-001 30 100 2
-    Приоритет: 1 - высокий, 2 - средний, 3 - низкий (по умолчанию 2)
-    """
+    """Добавить новый маяк"""
+    user_info = get_user_info(interaction)
+
     # Если ID не указан, показываем меню
     if beacon_id is None:
+        action_logger.info(f"{user_info} opened menu")
         embed = discord.Embed(
             title="🚀 Управление маяками",
             description="Выберите действие с помощью кнопок ниже",
@@ -1090,9 +1217,10 @@ async def add(interaction: discord.Interaction, beacon_id: str = None, priority:
 
     # Проверка приоритета
     if priority not in [1, 2, 3]:
+        error_msg = f"Ошибка: приоритет должен быть 1, 2 или 3. Получено: {priority}"
+        action_logger.warning(f"{user_info} failed to add beacon {beacon_id}: invalid priority {priority}")
         await interaction.response.send_message(
-            "Ошибка: приоритет должен быть 1, 2 или 3\n"
-            "1 - высокий\n2 - средний\n3 - низкий"
+            f"{error_msg}\n1 - высокий\n2 - средний\n3 - низкий"
         )
         return
 
@@ -1109,9 +1237,9 @@ async def add(interaction: discord.Interaction, beacon_id: str = None, priority:
         fuel_consumption_rate = 1.5
 
     if current_fuel > MAX_FUEL or current_lifetime > MAX_LIFETIME:
-        await interaction.response.send_message(
-            f"Ошибка: значения не могут превышать {MAX_FUEL} для топлива и {MAX_LIFETIME}% для срока"
-        )
+        error_msg = f"Значения не могут превышать {MAX_FUEL} для топлива и {MAX_LIFETIME}% для срока"
+        action_logger.warning(f"{user_info} failed to add beacon {beacon_id}: {error_msg}")
+        await interaction.response.send_message(f"Ошибка: {error_msg}")
         return
 
     try:
@@ -1126,6 +1254,12 @@ async def add(interaction: discord.Interaction, beacon_id: str = None, priority:
         )
         conn.commit()
 
+        # Логируем успешное добавление
+        action_logger.info(
+            f"{user_info} added beacon {beacon_id} | "
+            f"Fuel: {current_fuel}/{MAX_FUEL}, Lifetime: {current_lifetime}%, Priority: {priority}"
+        )
+
         # Текстовое представление приоритета
         priority_text = {1: "🔴 Высокий", 2: "🟡 Средний", 3: "🟢 Низкий"}[priority]
 
@@ -1136,8 +1270,12 @@ async def add(interaction: discord.Interaction, beacon_id: str = None, priority:
             f"📊 Приоритет: {priority_text}"
         )
     except sqlite3.IntegrityError:
-        await interaction.response.send_message(f"Маяк {beacon_id} уже существует!")
+        error_msg = f"Маяк {beacon_id} уже существует!"
+        action_logger.warning(f"{user_info} failed to add beacon {beacon_id}: already exists")
+        await interaction.response.send_message(error_msg)
     except Exception as e:
+        error_msg = f"Ошибка при добавлении маяка {beacon_id}: {str(e)}"
+        error_logger.error(f"{user_info} {error_msg}", exc_info=True)
         await interaction.response.send_message(f"Ошибка: {str(e)}")
     finally:
         conn.close()
@@ -1147,6 +1285,8 @@ async def add(interaction: discord.Interaction, beacon_id: str = None, priority:
 @app_commands.autocomplete(beacon_id=get_beacon_ids_with_details)
 async def refuel(interaction: discord.Interaction, beacon_id: str = None, amount: float = None):
     """Пополнить топливо маяка по ID с автодополнением"""
+    user_info = get_user_info(interaction)
+
     if beacon_id is None:
         # Показываем меню с выбором
         conn = get_db_connection()
@@ -1201,19 +1341,27 @@ async def refuel(interaction: discord.Interaction, beacon_id: str = None, amount
         ''', (new_fuel, datetime.now().isoformat(), not reset_status, beacon_id))
 
         conn.commit()
+
+        action_logger.info(
+            f"{user_info} refueled beacon {beacon_id} | "
+            f"Added: {amount}, Old: {current:.1f}, New: {new_fuel:.1f}/{MAX_FUEL}"
+        )
+
         await interaction.response.send_message(
             f"Топливо маяка {beacon_id} пополнено до {new_fuel}/{MAX_FUEL}"
         )
     except Exception as e:
+        error_msg = f"Ошибка при заправке маяка {beacon_id}: {str(e)}"
+        error_logger.error(f"{user_info} {error_msg}", exc_info=True)
         await interaction.response.send_message(f"Ошибка: {str(e)}")
     finally:
         conn.close()
-
 
 @bot.tree.command(name="status", description="Показать статус маяка")
 @app_commands.autocomplete(beacon_id=get_beacon_ids)
 async def status(interaction: discord.Interaction, beacon_id: str = None):
     """Показать статус маяка по ID или всех маяков с автодополнением"""
+    user_info = get_user_info(interaction)
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -1223,10 +1371,14 @@ async def status(interaction: discord.Interaction, beacon_id: str = None):
             beacon = cursor.fetchone()
 
             if not beacon:
+                action_logger.info(f"{user_info} checked status of non-existent beacon {beacon_id}")
                 await interaction.response.send_message(
                     f"Маяк {beacon_id} не найден или уже сгнил!"
                 )
                 return
+
+            # Логируем просмотр статуса конкретного маяка
+            action_logger.info(f"{user_info} checked status of beacon {beacon_id}")
 
             hours_remaining_fuel = beacon['current_fuel'] * beacon['fuel_consumption_rate']
             hours_remaining_lifetime = beacon['current_lifetime'] / LIFETIME_DECAY_RATE
@@ -1257,8 +1409,12 @@ async def status(interaction: discord.Interaction, beacon_id: str = None):
             beacons = cursor.fetchall()
 
             if not beacons:
+                action_logger.info(f"{user_info} checked status - no active beacons")
                 await interaction.response.send_message("Нет активных маяков")
                 return
+
+            # Логируем просмотр статуса всех маяков
+            action_logger.info(f"{user_info} checked status of all beacons ({len(beacons)} active)")
 
             embed = discord.Embed(
                 title="📊 Статус всех маяков",
@@ -1289,6 +1445,8 @@ async def status(interaction: discord.Interaction, beacon_id: str = None):
             await interaction.response.send_message(embed=embed)
 
     except Exception as e:
+        error_msg = f"Ошибка при просмотре статуса: {str(e)}"
+        error_logger.error(f"{user_info} {error_msg}", exc_info=True)
         await interaction.response.send_message(f"Ошибка: {str(e)}")
     finally:
         conn.close()
@@ -1299,6 +1457,8 @@ async def status(interaction: discord.Interaction, beacon_id: str = None):
 async def edit(interaction: discord.Interaction, beacon_id: str = None, priority: int = 2,
                current_fuel: float = None, current_lifetime: float = None):
     """Редактировать данные маяка по ID с автодополнением"""
+    user_info = get_user_info(interaction)
+
     if beacon_id is None:
         # Показываем меню с выбором
         conn = get_db_connection()
@@ -1327,6 +1487,7 @@ async def edit(interaction: discord.Interaction, beacon_id: str = None, priority
     updates = []
     params = []
     reset_status = False
+    changes = []
 
     if priority is not None:
         if priority not in [1, 2, 3]:
@@ -1344,6 +1505,7 @@ async def edit(interaction: discord.Interaction, beacon_id: str = None, priority
             fuel_consumption_rate = 2
         updates.append("fuel_consumption_rate = ?")
         params.append(fuel_consumption_rate)
+        changes.append(f"priority={priority}")
 
     if current_fuel is not None:
         if current_fuel > MAX_FUEL:
@@ -1353,6 +1515,7 @@ async def edit(interaction: discord.Interaction, beacon_id: str = None, priority
             return
         updates.append("current_fuel = ?")
         params.append(current_fuel)
+        changes.append(f"fuel={current_fuel}")
         reset_status = reset_status or ((current_fuel / MAX_FUEL) * 100 >= 20)
 
     if current_lifetime is not None:
@@ -1363,6 +1526,7 @@ async def edit(interaction: discord.Interaction, beacon_id: str = None, priority
             return
         updates.append("current_lifetime = ?")
         params.append(current_lifetime)
+        changes.append(f"lifetime={current_lifetime}")
         reset_status = reset_status or (current_lifetime >= 20)
 
     if not updates:
@@ -1385,7 +1549,12 @@ async def edit(interaction: discord.Interaction, beacon_id: str = None, priority
         if cursor.rowcount == 0:
             await interaction.response.send_message(f"Маяк {beacon_id} не найден!")
         else:
+            action_logger.info(f"{user_info} edited beacon {beacon_id}: {', '.join(changes)}")
             await interaction.response.send_message(f"Данные маяка {beacon_id} успешно обновлены!")
+    except Exception as e:
+        error_msg = f"Ошибка при редактировании маяка {beacon_id}: {str(e)}"
+        error_logger.error(f"{user_info} {error_msg}", exc_info=True)
+        await interaction.response.send_message(f"Ошибка: {str(e)}")
     finally:
         conn.close()
 
@@ -1394,6 +1563,8 @@ async def edit(interaction: discord.Interaction, beacon_id: str = None, priority
 @app_commands.autocomplete(beacon_id=get_beacon_ids_with_details)
 async def delete(interaction: discord.Interaction, beacon_id: str = None):
     """Удалить маяк по ID с автодополнением"""
+    user_info = get_user_info(interaction)
+
     if beacon_id is None:
         # Показываем меню с выбором
         conn = get_db_connection()
@@ -1428,22 +1599,22 @@ async def delete(interaction: discord.Interaction, beacon_id: str = None):
     if cursor.rowcount == 0:
         await interaction.response.send_message(f"Маяк с ID {beacon_id} не найден!")
     else:
+        action_logger.info(f"{user_info} deleted beacon {beacon_id}")
         await interaction.response.send_message(f"Маяк {beacon_id} успешно удалён!")
 
     conn.close()
 
 
-# TODO вынести View отдельно
 @bot.tree.command(name="clear")
 async def clear(interaction: discord.Interaction):
     """Удалить все маяки (требуется подтверждение)"""
+    user_info = get_user_info(interaction)
+
     has_permission = False
     allowed_user_ids = [226751097295994881]
 
     if interaction.user.id in allowed_user_ids:
         has_permission = True
-        print(f"Доступ разрешен по ID: {interaction.user.id}")
-
     elif (interaction.user.guild_permissions.administrator or
           interaction.user.guild_permissions.manage_guild or
           interaction.user.guild_permissions.manage_channels):
@@ -1475,16 +1646,38 @@ async def clear(interaction: discord.Interaction):
             try:
                 conn = get_db_connection()
                 cursor = conn.cursor()
+
+                # Получаем список маяков до удаления
+                cursor.execute('SELECT beacon_id FROM beacons')
+                beacons = cursor.fetchall()
+                beacon_list = [b['beacon_id'] for b in beacons]
+                count_before = len(beacon_list)
+
+                # Выполняем удаление
                 cursor.execute('DELETE FROM beacons')
                 conn.commit()
 
+                # ===== ЛОГИРОВАНИЕ ОЧИСТКИ =====
+                if count_before > 0:
+                    action_logger.info(
+                        f"{get_user_info(button_interaction)} cleared ALL beacons | "
+                        f"Deleted: {count_before} beacons: {', '.join(beacon_list)}"
+                    )
+                else:
+                    action_logger.info(
+                        f"{get_user_info(button_interaction)} tried to clear but no beacons to delete"
+                    )
+
                 embed = discord.Embed(
                     title="✅ Успешно",
-                    description="Все маяки успешно удалены!",
+                    description=f"Все маяки ({count_before}) успешно удалены!",
                     color=discord.Color.green()
                 )
                 await button_interaction.response.edit_message(embed=embed, view=None)
+
             except Exception as e:
+                error_msg = f"Ошибка при очистке всех маяков: {str(e)}"
+                error_logger.error(f"{get_user_info(button_interaction)} {error_msg}", exc_info=True)
                 embed = discord.Embed(
                     title="❌ Ошибка",
                     description=f"Произошла ошибка при удалении: {str(e)}",
