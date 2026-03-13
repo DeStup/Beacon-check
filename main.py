@@ -1078,6 +1078,33 @@ class BeaconMenuView(View):
         view = BeaconSelectView("status", interaction.user.id)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
+    @discord.ui.button(label="Редактировать", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
+    async def edit_button(self, interaction: discord.Interaction, button: Button):
+        """Кнопка редактирования маяка с выбором из списка"""
+        # Проверяем, есть ли маяки
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) as count FROM beacons')
+        count = cursor.fetchone()['count']
+        conn.close()
+
+        if count == 0:
+            await interaction.response.send_message(
+                "❌ Нет активных маяков для редактирования!",
+                ephemeral=True
+            )
+            return
+
+        embed = discord.Embed(
+            title="✏️ Редактирование маяка",
+            description="Выберите маяк из списка ниже:",
+            color=discord.Color.blue()
+        )
+
+        view = BeaconSelectView("edit", interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
     @discord.ui.button(label="Удалить", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def delete_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка удаления маяка с выбором из списка"""
