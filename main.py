@@ -1291,6 +1291,7 @@ async def menu(interaction: discord.Interaction):
     """Показать меню с кнопками для управления маяками"""
     embed = discord.Embed(
         title="🚀 Управление маяками",
+        description="Это меню видно только вам и закроется через 30 секунд",
         color=discord.Color.blue()
     )
     embed.add_field(
@@ -1308,7 +1309,7 @@ async def menu(interaction: discord.Interaction):
     )
 
     view = BeaconMenuView()
-    await interaction.response.send_message(embed=embed, view=view)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 @bot.tree.command(name="add", description="Добавить новый маяк")
