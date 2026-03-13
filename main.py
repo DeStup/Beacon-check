@@ -1291,7 +1291,6 @@ async def menu(interaction: discord.Interaction):
     """Показать меню с кнопками для управления маяками"""
     embed = discord.Embed(
         title="🚀 Управление маяками",
-        description="Это меню видно только вам и закроется через 30 секунд",
         color=discord.Color.blue()
     )
     embed.add_field(
