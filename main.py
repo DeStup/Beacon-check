@@ -903,7 +903,9 @@ async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
 
         embed = discord.Embed(
             title=f"📊 Статус маяка {beacon['beacon_id']}",
-            color=discord.Color.blue()
+            description=f"Запросил: {interaction.user.mention}",
+            color=discord.Color.blue(),
+            timestamp=datetime.now()
         )
         embed.add_field(
             name="🔋 Топливо",
@@ -932,7 +934,8 @@ async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
             inline=False
         )
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        # Отправляем публично
+        await interaction.response.send_message(embed=embed)
 
     except Exception as e:
         error_msg = f"Ошибка при просмотре статуса: {str(e)}"
@@ -943,7 +946,7 @@ async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
 
 
 async def show_all_beacons_status(interaction: discord.Interaction):
-    """Показать статус всех маяков"""
+    """Показать статус всех маяков (публично)"""
     user_info = get_user_info(interaction)
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -960,11 +963,13 @@ async def show_all_beacons_status(interaction: discord.Interaction):
             )
             return
 
-        action_logger.info(f"{user_info} checked status of all beacons ({len(beacons)} active)")
+        action_logger.info(f"{user_info} requested public status of all beacons ({len(beacons)} active)")
 
         embed = discord.Embed(
             title="📊 Статус всех маяков",
-            color=discord.Color.blue()
+            description=f"Запросил: {interaction.user.mention}",
+            color=discord.Color.blue(),
+            timestamp=datetime.now()
         )
 
         for beacon in beacons:
@@ -981,13 +986,24 @@ async def show_all_beacons_status(interaction: discord.Interaction):
             lifetime_bar = "█" * int(beacon['current_lifetime'] / 10) + "░" * (
                         10 - int(beacon['current_lifetime'] / 10))
 
+            # Добавляем индикатор критического состояния
+            status_emoji = ""
+            if beacon['current_lifetime'] <= 20 or fuel_percent <= 20:
+                status_emoji = "⚠️ "
+            elif beacon['current_lifetime'] <= 5 or fuel_percent <= 5:
+                status_emoji = "🔴 "
+
             embed.add_field(
-                name=f"{priority_text} {beacon['beacon_id']}",
+                name=f"{status_emoji}{priority_text} {beacon['beacon_id']}",
                 value=f"🔋 {fuel_bar} {beacon['current_fuel']:.1f}/{MAX_FUEL}\n🔄 {lifetime_bar} {beacon['current_lifetime']:.1f}%",
                 inline=False
             )
 
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        # Добавляем легенду
+        embed.set_footer(text="🔴 Высокий | 🟡 Средний | 🟢 Низкий | ⚠️ Требует внимания")
+
+        # Отправляем публично (ephemeral=False)
+        await interaction.response.send_message(embed=embed)
 
     except Exception as e:
         error_msg = f"Ошибка при просмотре статуса: {str(e)}"
