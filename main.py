@@ -224,7 +224,7 @@ async def get_beacon_ids_with_details(interaction: discord.Interaction, current:
     cursor = conn.cursor()
 
     try:
-        cursor.execute('SELECT beacon_id, current_fuel, current_lifetime FROM beacons ORDER BY beacon_id')
+        cursor.execute('SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate FROM beacons ORDER BY beacon_id')
         beacons = cursor.fetchall()
 
         choices = []
@@ -232,9 +232,18 @@ async def get_beacon_ids_with_details(interaction: discord.Interaction, current:
             beacon_id = beacon['beacon_id']
             fuel = beacon['current_fuel']
             lifetime = beacon['current_lifetime']
+            rate = beacon['fuel_consumption_rate']
 
-            # Создаем название с информацией о состоянии
-            display_name = f"{beacon_id} (🔋{fuel:.0f} | 🔄{lifetime:.0f}%)"
+            # Выбираем эмодзи приоритета
+            if rate == 1:
+                priority_emoji = "🔴"  # Высокий приоритет
+            elif rate == 1.5:
+                priority_emoji = "🟡"  # Средний приоритет
+            else:  # rate == 2
+                priority_emoji = "🟢"  # Низкий приоритет
+
+            # Создаем название с эмодзи приоритета
+            display_name = f"{priority_emoji} {beacon_id} (🔋{fuel:.0f} | 🔄{lifetime:.0f}%)"
 
             if not current or current.lower() in beacon_id.lower() or current.lower() in display_name.lower():
                 choices.append(app_commands.Choice(name=display_name[:100], value=beacon_id))
@@ -668,7 +677,7 @@ class BeaconSelect(Select):
         # Получаем список маяков из БД
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('SELECT beacon_id, current_fuel, current_lifetime FROM beacons ORDER BY beacon_id')
+        cursor.execute('SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate FROM beacons ORDER BY beacon_id')
         beacons = cursor.fetchall()
         conn.close()
 
@@ -687,14 +696,15 @@ class BeaconSelect(Select):
                 beacon_id = beacon['beacon_id']
                 fuel = beacon['current_fuel']
                 lifetime = beacon['current_lifetime']
+                rate = beacon['fuel_consumption_rate']
 
-                # Выбираем эмодзи в зависимости от состояния
-                if lifetime < 20 or (fuel / MAX_FUEL * 100) < 20:
-                    emoji = "⚠️"
-                elif lifetime < 50 or (fuel / MAX_FUEL * 100) < 50:
-                    emoji = "⚡"
-                else:
-                    emoji = "✅"
+                # Выбираем эмодзи приоритета
+                if rate == 1:
+                    emoji = "🔴"  # Высокий приоритет
+                elif rate == 1.5:
+                    emoji = "🟡"  # Средний приоритет
+                else:  # rate == 2
+                    emoji = "🟢"  # Низкий приоритет
 
                 options.append(
                     discord.SelectOption(
