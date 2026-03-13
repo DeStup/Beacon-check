@@ -995,43 +995,30 @@ class BeaconMenuView(View):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="Помощь", style=discord.ButtonStyle.secondary, emoji="❓", row=2)
-    async def help_button(self, interaction: discord.Interaction, button: Button):
-        """Кнопка помощи"""
-        embed = discord.Embed(
-            title="❓ Помощь по командам",
-            description="Как пользоваться ботом",
-            color=discord.Color.purple()
-        )
-        embed.add_field(
-            name="📋 Доступные действия",
-            value=(
-                "**➕ Добавить маяк** - добавить новый маяк\n"
-                "**⛽ Заправить** - пополнить топливо маяка (с выбором из списка)\n"
-                "**📊 Статус** - показать статус всех маяков\n"
-                "**✏️ Редактировать** - изменить данные маяка (с выбором из списка)\n"
-                "**🗑️ Удалить** - удалить маяк (с выбором из списка)\n"
-                "**🔄 Обновить** - обновить данные\n"
-                "**🧹 Очистить всё** - удалить все маяки (админ)"
-            ),
-            inline=False
-        )
-        embed.add_field(
-            name="⌨️ Текстовые команды",
-            value=(
-                "`/add [ID] [приоритет] [топливо] [прочность]`\n"
-                "`/refuel [ID] [количество]` - ID можно выбрать из списка\n"
-                "`/status [ID]`\n"
-                "`/edit [ID] [приоритет] [топливо] [прочность]` - ID можно выбрать из списка\n"
-                "`/delete [ID]` - ID можно выбрать из списка\n"
-                "`/clear` - удалить все маяки (админ)\n"
-                "`/menu` - показать это меню"
-            ),
-            inline=False
-        )
-        embed.set_footer(text="Нажмите на кнопки ниже для действий")
-
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+    # @discord.ui.button(label="Помощь", style=discord.ButtonStyle.secondary, emoji="❓", row=2)
+    # async def help_button(self, interaction: discord.Interaction, button: Button):
+    #     """Кнопка помощи"""
+    #     embed = discord.Embed(
+    #         title="❓ Помощь по командам",
+    #         description="Как пользоваться ботом",
+    #         color=discord.Color.purple()
+    #     )
+    #     embed.add_field(
+    #         name="📋 Доступные действия",
+    #         value=(
+    #             "**➕ Добавить маяк** - добавить новый маяк\n"
+    #             "**⛽ Заправить** - пополнить топливо маяка (с выбором из списка)\n"
+    #             "**📊 Статус** - показать статус всех маяков\n"
+    #             "**✏️ Редактировать** - изменить данные маяка (с выбором из списка)\n"
+    #             "**🗑️ Удалить** - удалить маяк (с выбором из списка)\n"
+    #             "**🔄 Обновить** - обновить данные\n"
+    #             "**🧹 Очистить всё** - удалить все маяки (админ)"
+    #         ),
+    #         inline=False
+    #     )
+    #     embed.set_footer(text="Нажмите на кнопки ниже для действий")
+    #
+    #     await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(label="Очистить всё", style=discord.ButtonStyle.danger, emoji="⚠️", row=2)
     async def clear_button(self, interaction: discord.Interaction, button: Button):
