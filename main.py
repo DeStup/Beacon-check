@@ -363,14 +363,12 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
         try:
             priority = int(self.priority.value)
             if priority not in [1, 2, 3]:
-                action_logger.warning(f"{user_info} modal add: invalid priority {priority}")
                 await interaction.response.send_message(
                     "❌ Ошибка: приоритет должен быть 1, 2 или 3",
                     ephemeral=True
                 )
                 return
         except ValueError:
-            action_logger.warning(f"{user_info} modal add: priority not a number")
             await interaction.response.send_message(
                 "❌ Ошибка: приоритет должен быть числом",
                 ephemeral=True
@@ -382,9 +380,6 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
         current_lifetime = float(self.lifetime.value) if self.lifetime.value else MAX_LIFETIME
 
         if current_fuel > MAX_FUEL or current_lifetime > MAX_LIFETIME:
-            action_logger.warning(
-                f"{user_info} modal add: values too high - fuel={current_fuel}, lifetime={current_lifetime}"
-            )
             await interaction.response.send_message(
                 f"❌ Ошибка: значения не могут превышать {MAX_FUEL} для топлива и {MAX_LIFETIME}% для срока",
                 ephemeral=True
@@ -430,7 +425,6 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
             await interaction.response.send_message(embed=embed)
 
         except sqlite3.IntegrityError:
-            action_logger.warning(f"{user_info} modal add: beacon {self.beacon_id.value} already exists")
             await interaction.response.send_message(
                 f"❌ Маяк {self.beacon_id.value} уже существует!",
                 ephemeral=True
@@ -857,12 +851,12 @@ class BeaconMenuView(View):
     def __init__(self):
         super().__init__(timeout=60)  # Таймаут 60 секунд
 
-    @discord.ui.button(label="➕ Добавить маяк", style=discord.ButtonStyle.green, emoji="➕", row=0)
+    @discord.ui.button(label="Добавить маяк", style=discord.ButtonStyle.green, emoji="➕", row=0)
     async def add_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка добавления маяка"""
         await interaction.response.send_modal(AddBeaconModal())
 
-    @discord.ui.button(label="⛽ Заправить", style=discord.ButtonStyle.primary, emoji="⛽", row=0)
+    @discord.ui.button(label="Заправить", style=discord.ButtonStyle.primary, emoji="⛽", row=0)
     async def refuel_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка заправки маяка с выбором из списка"""
         # Проверяем, есть ли маяки
@@ -888,7 +882,7 @@ class BeaconMenuView(View):
         view = BeaconSelectView("refuel", interaction.user.id)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    @discord.ui.button(label="📊 Статус", style=discord.ButtonStyle.secondary, emoji="📊", row=0)
+    @discord.ui.button(label="Статус", style=discord.ButtonStyle.secondary, emoji="📊", row=0)
     async def status_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка просмотра статуса"""
         # Показываем статус всех маяков
@@ -939,7 +933,7 @@ class BeaconMenuView(View):
         finally:
             conn.close()
 
-    @discord.ui.button(label="✏️ Редактировать", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
+    @discord.ui.button(label="Редактировать", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
     async def edit_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка редактирования маяка с выбором из списка"""
         # Проверяем, есть ли маяки
@@ -965,7 +959,7 @@ class BeaconMenuView(View):
         view = BeaconSelectView("edit", interaction.user.id)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    @discord.ui.button(label="🗑️ Удалить", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
+    @discord.ui.button(label="Удалить", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def delete_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка удаления маяка с выбором из списка"""
         # Проверяем, есть ли маяки
@@ -991,7 +985,7 @@ class BeaconMenuView(View):
         view = BeaconSelectView("delete", interaction.user.id)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-    @discord.ui.button(label="🔄 Обновить", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
+    @discord.ui.button(label="Обновить", style=discord.ButtonStyle.secondary, emoji="🔄", row=1)
     async def refresh_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка обновления данных"""
         embed = discord.Embed(
@@ -1001,7 +995,7 @@ class BeaconMenuView(View):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="❓ Помощь", style=discord.ButtonStyle.secondary, emoji="❓", row=2)
+    @discord.ui.button(label="Помощь", style=discord.ButtonStyle.secondary, emoji="❓", row=2)
     async def help_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка помощи"""
         embed = discord.Embed(
@@ -1039,7 +1033,7 @@ class BeaconMenuView(View):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @discord.ui.button(label="🧹 Очистить всё", style=discord.ButtonStyle.danger, emoji="⚠️", row=2)
+    @discord.ui.button(label="Очистить всё", style=discord.ButtonStyle.danger, emoji="⚠️", row=2)
     async def clear_button(self, interaction: discord.Interaction, button: Button):
         """Кнопка очистки всех маяков (только для админов)"""
         # Проверка прав
@@ -1097,10 +1091,6 @@ class BeaconMenuView(View):
                             f"{get_user_info(btn_interaction)} cleared ALL beacons via menu button | "
                             f"Deleted: {count_before} beacons: {', '.join(beacon_list)}"
                         )
-                    else:
-                        action_logger.info(
-                            f"{get_user_info(btn_interaction)} tried to clear via menu button but no beacons to delete"
-                        )
 
                     embed = discord.Embed(
                         title="✅ Успешно",
@@ -1130,9 +1120,6 @@ class BeaconMenuView(View):
                     )
                     return
 
-                # ===== ЛОГИРОВАНИЕ ОТМЕНЫ =====
-                action_logger.info(f"{get_user_info(btn_interaction)} cancelled clear all beacons via menu button")
-
                 embed = discord.Embed(
                     title="❌ Отменено",
                     description="Очистка маяков отменена.",
@@ -1144,9 +1131,6 @@ class BeaconMenuView(View):
                 for item in self.children:
                     item.disabled = True
                 try:
-                    # ===== ЛОГИРОВАНИЕ ТАЙМАУТА =====
-                    action_logger.info(f"{get_user_info(interaction)} clear command via menu button timed out")
-
                     embed = discord.Embed(
                         title="⌛ Время истекло",
                         description="Время подтверждения истекло. Очистка отменена.",
@@ -1205,7 +1189,6 @@ async def add(interaction: discord.Interaction, beacon_id: str = None, priority:
 
     # Если ID не указан, показываем меню
     if beacon_id is None:
-        action_logger.info(f"{user_info} opened menu")
         embed = discord.Embed(
             title="🚀 Управление маяками",
             description="Выберите действие с помощью кнопок ниже",
@@ -1218,7 +1201,6 @@ async def add(interaction: discord.Interaction, beacon_id: str = None, priority:
     # Проверка приоритета
     if priority not in [1, 2, 3]:
         error_msg = f"Ошибка: приоритет должен быть 1, 2 или 3. Получено: {priority}"
-        action_logger.warning(f"{user_info} failed to add beacon {beacon_id}: invalid priority {priority}")
         await interaction.response.send_message(
             f"{error_msg}\n1 - высокий\n2 - средний\n3 - низкий"
         )
@@ -1238,7 +1220,6 @@ async def add(interaction: discord.Interaction, beacon_id: str = None, priority:
 
     if current_fuel > MAX_FUEL or current_lifetime > MAX_LIFETIME:
         error_msg = f"Значения не могут превышать {MAX_FUEL} для топлива и {MAX_LIFETIME}% для срока"
-        action_logger.warning(f"{user_info} failed to add beacon {beacon_id}: {error_msg}")
         await interaction.response.send_message(f"Ошибка: {error_msg}")
         return
 
@@ -1271,7 +1252,6 @@ async def add(interaction: discord.Interaction, beacon_id: str = None, priority:
         )
     except sqlite3.IntegrityError:
         error_msg = f"Маяк {beacon_id} уже существует!"
-        action_logger.warning(f"{user_info} failed to add beacon {beacon_id}: already exists")
         await interaction.response.send_message(error_msg)
     except Exception as e:
         error_msg = f"Ошибка при добавлении маяка {beacon_id}: {str(e)}"
@@ -1371,14 +1351,10 @@ async def status(interaction: discord.Interaction, beacon_id: str = None):
             beacon = cursor.fetchone()
 
             if not beacon:
-                action_logger.info(f"{user_info} checked status of non-existent beacon {beacon_id}")
                 await interaction.response.send_message(
                     f"Маяк {beacon_id} не найден или уже сгнил!"
                 )
                 return
-
-            # Логируем просмотр статуса конкретного маяка
-            action_logger.info(f"{user_info} checked status of beacon {beacon_id}")
 
             hours_remaining_fuel = beacon['current_fuel'] * beacon['fuel_consumption_rate']
             hours_remaining_lifetime = beacon['current_lifetime'] / LIFETIME_DECAY_RATE
@@ -1409,12 +1385,8 @@ async def status(interaction: discord.Interaction, beacon_id: str = None):
             beacons = cursor.fetchall()
 
             if not beacons:
-                action_logger.info(f"{user_info} checked status - no active beacons")
                 await interaction.response.send_message("Нет активных маяков")
                 return
-
-            # Логируем просмотр статуса всех маяков
-            action_logger.info(f"{user_info} checked status of all beacons ({len(beacons)} active)")
 
             embed = discord.Embed(
                 title="📊 Статус всех маяков",
@@ -1662,10 +1634,6 @@ async def clear(interaction: discord.Interaction):
                     action_logger.info(
                         f"{get_user_info(button_interaction)} cleared ALL beacons | "
                         f"Deleted: {count_before} beacons: {', '.join(beacon_list)}"
-                    )
-                else:
-                    action_logger.info(
-                        f"{get_user_info(button_interaction)} tried to clear but no beacons to delete"
                     )
 
                 embed = discord.Embed(
