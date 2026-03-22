@@ -206,7 +206,7 @@ async def check_beacons():
             try:
                 low_status_sent = bool(beacon['low_status_sent'])
             except (KeyError, IndexError):
-                low_status_sent = False  # Значение по умолчанию если колонки нет
+                low_status_sent = False
 
             now = datetime.now().isoformat()
 
@@ -227,17 +227,45 @@ async def check_beacons():
 
             if (fuel_percent < 20 or lifetime_percent < 20) and not low_status_sent:
                 channel = bot.get_channel(int(os.getenv("ALERT_ROLE_ID")))
-                status_msgs = []
 
-                if fuel_percent < 20:
-                    status_msgs.append(f"топливо: {current_fuel:.1f} ({fuel_percent:.1f}%)")
-                if lifetime_percent < 20:
-                    status_msgs.append(f"срок: {lifetime_percent:.1f}%")
+                # Определяем уровень критичности
+                is_critical = (fuel_percent < 5 or lifetime_percent < 5)
+                warning_emoji = "💀" if is_critical else "⚠️"
+                warning_text = "КРИТИЧЕСКИЙ УРОВЕНЬ!" if is_critical else "ВНИМАНИЕ!"
 
-                await channel.send(
-                    f"⚠️ Внимание! Маяк {beacon_id} имеет низкие показатели:\n"
-                    f"- {'; '.join(status_msgs)}"
+                # Создаем полоски прогресса
+                fuel_bar = "█" * int(fuel_percent / 10) + "░" * (10 - int(fuel_percent / 10))
+                lifetime_bar = "█" * int(current_lifetime / 10) + "░" * (10 - int(current_lifetime / 10))
+
+                # Добавляем эмодзи для показателей
+                fuel_emoji = "💀" if fuel_percent < 5 else "🟡" if fuel_percent < 20 else "✅"
+                lifetime_emoji = "💀" if lifetime_percent < 5 else "🟡" if lifetime_percent < 20 else "✅"
+
+                embed = discord.Embed(
+                    title=f"{warning_emoji} {warning_text}",
+                    description=f"Маяк **{beacon_id}**",
+                    color=discord.Color.red() if is_critical else discord.Color.orange(),
+                    timestamp=datetime.now()
                 )
+
+                # Добавляем поля с полосками прогресса
+                embed.add_field(
+                    name=f"{fuel_emoji} Топливо",
+                    value=f"🔋 {fuel_bar} {current_fuel:.1f}/{MAX_FUEL} ({fuel_percent:.1f}%)",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name=f"{lifetime_emoji} Прочность",
+                    value=f"🔄 {lifetime_bar} {current_lifetime:.1f}%",
+                    inline=False
+                )
+
+                # Добавляем ссылку на исходное сообщение
+                if beacon['message_link']:
+                    embed.add_field(name="", value=f"🔗 [Перейти]({beacon['message_link']})", inline=False)
+
+                await channel.send(embed=embed)
 
                 # Обновляем статус уведомления
                 cursor.execute('''
@@ -259,9 +287,35 @@ async def check_beacons():
                 conn.commit()
 
                 channel = bot.get_channel(1403035488591413268)
-                await channel.send(
-                    f"✅ Маяк {beacon_id} восстановил нормальные показатели"
+
+                # Создаем embed для восстановления
+                fuel_percent = (current_fuel / MAX_FUEL) * 100
+                fuel_bar = "█" * int(fuel_percent / 10) + "░" * (10 - int(fuel_percent / 10))
+                lifetime_bar = "█" * int(current_lifetime / 10) + "░" * (10 - int(current_lifetime / 10))
+
+                embed = discord.Embed(
+                    title="✅ Маяк восстановил нормальные показатели",
+                    description=f"Маяк **{beacon_id}**",
+                    color=discord.Color.green(),
+                    timestamp=datetime.now()
                 )
+
+                embed.add_field(
+                    name="🔋 Топливо",
+                    value=f"{fuel_bar} {current_fuel:.1f}/{MAX_FUEL} ({fuel_percent:.1f}%)",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="🔄 Прочность",
+                    value=f"{lifetime_bar} {current_lifetime:.1f}%",
+                    inline=False
+                )
+
+                if beacon['message_link']:
+                    embed.add_field(name="", value=f"🔗 [Перейти]({beacon['message_link']})", inline=False)
+
+                await channel.send(embed=embed)
 
                 action_logger.info(f"Beacon {beacon_id} recovered to normal status")
 
@@ -411,14 +465,14 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
             priority_text = {1: "🔴 Высокий", 2: "🟡 Средний", 3: "🟢 Низкий"}[priority]
 
             embed = discord.Embed(
-                title="✅ Новый маяк добавлен",
+                title="✅ Добавлен маяк",
                 description=f"**{self.beacon_id.value}**",
                 color=discord.Color.green()
             )
             embed.add_field(name="🔋 Топливо", value=f"{current_fuel}/{MAX_FUEL}")
             embed.add_field(name="🔄 Прочность", value=f"{current_lifetime}%")
             embed.add_field(name="📊 Приоритет", value=priority_text)
-            embed.set_footer(text=f"Добавил: {interaction.user.display_name}")
+            embed.add_field(name="", value=f"Добавил: {interaction.user.mention}", inline=False)
 
             # Отправляем сообщение в канал
             sent_message = await interaction.channel.send(embed=embed)
@@ -491,7 +545,7 @@ class RefuelModal(Modal, title="⛽ Заправка маяка"):
         cursor = conn.cursor()
 
         try:
-            # Получаем данные маяка, включая ссылку на сообщение
+            # Получаем данные маяка
             cursor.execute('SELECT current_fuel, message_link FROM beacons WHERE beacon_id = ?',
                            (self.beacon_id_input.value,))
             result = cursor.fetchone()
@@ -525,25 +579,28 @@ class RefuelModal(Modal, title="⛽ Заправка маяка"):
                 f"Added: {amount}, Old: {current:.1f}, New: {new_fuel:.1f}/{MAX_FUEL}"
             )
 
+            # Создаем embed
             embed = discord.Embed(
-                title="⛽ Заправка выполнена",
-                description=f"**{self.beacon_id_input.value}**\nЗаправил: {interaction.user.mention}",
+                title="⛽ Заправлен маяк",
+                description=f"**{self.beacon_id_input.value}**",
                 color=discord.Color.blue()
             )
             embed.add_field(name="Новое топливо", value=f"{new_fuel}/{MAX_FUEL}")
             embed.add_field(name="Добавлено", value=f"{new_fuel - current:.1f}")
 
-            # Добавляем ссылку на исходное сообщение
+            # Добавляем ссылку
             if message_link:
-                embed.add_field(name="", value=f"🔗[Перейти]({message_link})", inline=False)
+                embed.add_field(name="", value=f"🔗 [Перейти]({message_link})", inline=False)
 
-            # Отправляем подтверждение пользователю
+            embed.add_field(name="", value=f"Заправил: {interaction.user.mention}", inline=False)
+
+            # Отправляем эфемерное подтверждение (закрывает модальное окно)
             await interaction.response.send_message(
-                f"✅ Заправка маяка {self.beacon_id_input.value} выполнена",
+                f"✅ Заправка маяка {self.beacon_id_input.value} выполнена!",
                 ephemeral=True
             )
 
-            # Отправляем embed в канал
+            # После закрытия модального окна отправляем embed в канал
             await interaction.channel.send(embed=embed)
 
         except Exception as e:
@@ -737,15 +794,14 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                     ephemeral=True
                 )
             else:
-                # Создаем embed с обновленными данными
+                # Создаем embed
                 embed = discord.Embed(
-                    title="✏️ Маяк отредактирован",
-                    description=f"**{self.beacon_id_input.value}**\nОтредактировал: {interaction.user.mention}",
+                    title="✏️ Изменён маяк",
+                    description=f"**{self.beacon_id_input.value}**",
                     color=discord.Color.gold(),
                     timestamp=datetime.now()
                 )
 
-                # Добавляем поля с новыми значениями
                 embed.add_field(
                     name="🔋 Топливо",
                     value=f"{new_values['fuel']:.1f}/{MAX_FUEL}",
@@ -762,17 +818,25 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                     inline=True
                 )
 
-                # Добавляем ссылку на исходное сообщение
+                if changes:
+                    embed.add_field(
+                        name="📝 Изменения",
+                        value="\n".join([f"• {change}" for change in changes]),
+                        inline=False
+                    )
+
                 if message_link:
                     embed.add_field(name="", value=f"🔗 [Перейти]({message_link})", inline=False)
 
-                # Отправляем подтверждение пользователю
+                embed.add_field(name="", value=f"Отредактировал: {interaction.user.mention}", inline=False)
+
+                # Отправляем эфемерное подтверждение (закрывает модальное окно)
                 await interaction.response.send_message(
                     f"✅ Данные маяка {self.beacon_id_input.value} успешно обновлены!",
                     ephemeral=True
                 )
 
-                # Отправляем embed в канал
+                # После закрытия модального окна отправляем embed в канал
                 await interaction.channel.send(embed=embed)
 
                 # Логируем изменения
@@ -853,31 +917,33 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
             else:
                 priority_text = "🟢 Низкий"
 
+            # Удаляем маяк
             cursor.execute('DELETE FROM beacons WHERE beacon_id = ?', (beacon_id,))
             conn.commit()
 
+            # Создаем embed
             embed = discord.Embed(
                 title="🗑️ Маяк удалён",
-                description=f"**{beacon_id}**\nУдалил: {interaction.user.mention}",
+                description=f"**{beacon_id}**",
                 color=discord.Color.red(),
                 timestamp=datetime.now()
             )
 
-            # Добавляем информацию об удаленном маяке
-            embed.add_field(name="🔋 Топливо", value=f"{current_fuel}/{MAX_FUEL}", inline=True)
-            embed.add_field(name="🔄 Прочность", value=f"{current_lifetime}%", inline=True)
-            embed.add_field(name="📊 Приоритет", value=priority_text, inline=True)
+            embed.add_field(name="", value=f"Удалил: {interaction.user.mention}", inline=False)
 
+            # Логируем удаление
             action_logger.info(
                 f"{get_user_info(interaction)} modal deleted beacon {beacon_id} | "
                 f"Fuel: {current_fuel}/{MAX_FUEL}, Lifetime: {current_lifetime}%, Priority: {priority_text}"
             )
 
+            # Отправляем эфемерное подтверждение (закрывает модальное окно)
             await interaction.response.send_message(
                 f"✅ Маяк {beacon_id} успешно удалён!",
                 ephemeral=True
             )
 
+            # После закрытия модального окна отправляем embed в канал
             await interaction.channel.send(embed=embed)
 
         except Exception as e:
@@ -1188,7 +1254,7 @@ class BeaconMenuView(View):
     """Класс для создания меню с кнопками"""
 
     def __init__(self):
-        super().__init__(timeout=60)  # Таймаут 60 секунд
+        super().__init__(timeout=120)  # Таймаут 60 секунд
 
     @discord.ui.button(label="Добавить маяк", style=discord.ButtonStyle.green, emoji="➕", row=0)
     async def add_button(self, interaction: discord.Interaction, button: Button):
@@ -1399,7 +1465,7 @@ class BeaconMenuView(View):
                     # Создаем публичный embed об очистке
                     embed = discord.Embed(
                         title="🧹 Очистка всех маяков",
-                        description=f"**Удалено маяков: {count_before}**\nОчистил: {btn_interaction.user.mention}",
+                        description=f"**Удалено маяков: {count_before}**",
                         color=discord.Color.red(),
                         timestamp=datetime.now()
                     )
@@ -1411,6 +1477,8 @@ class BeaconMenuView(View):
                                 f" и еще {len(beacon_list) - 10}" if len(beacon_list) > 10 else ""),
                             inline=False
                         )
+
+                    embed.add_field(name="", value=f"Очистил: {btn_interaction.user.mention}", inline=False)
 
                     # Отправляем публичное сообщение в канал
                     await btn_interaction.channel.send(embed=embed)
