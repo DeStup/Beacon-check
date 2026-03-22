@@ -115,10 +115,6 @@ def init_db():
 
 init_db()
 
-def get_user_info(interaction):
-    """Возвращает строку с информацией о пользователе"""
-    return f"User: {interaction.user.name} (ID: {interaction.user.id})"
-
 @bot.event
 async def on_ready():
     print(f'Бот {bot.user} запущен!')
@@ -328,6 +324,52 @@ async def check_beacons():
     finally:
         conn.close()
 
+def get_priority_text(rate: float) -> tuple:
+    """Возвращает эмодзи и текст приоритета по значению rate"""
+    if rate == 1:
+        return "🔴", "Высокий"
+    elif rate == 1.5:
+        return "🟡", "Средний"
+    else:
+        return "🟢", "Низкий"
+
+def get_progress_bar(value: float, max_value: float, bar_length: int = 10) -> str:
+    """Создает полоску прогресса"""
+    percent = (value / max_value) * 100
+    filled = int(percent / (100 / bar_length))
+    return "█" * filled + "░" * (bar_length - filled)
+
+def get_status_emoji(percent: float, threshold_warning: int = 20, threshold_critical: int = 5) -> str:
+    """Возвращает эмодзи статуса в зависимости от процента"""
+    if percent <= threshold_critical:
+        return "💀"
+    elif percent <= threshold_warning:
+        return "⚠️"
+    return "✅"
+
+
+def create_embed(title: str, description: str, color: discord.Color,
+                 fields: List[tuple] = None, footer: str = None,
+                 timestamp: bool = True, link: str = None) -> discord.Embed:
+    """Создает стандартизированный embed"""
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        color=color,
+        timestamp=datetime.now() if timestamp else None
+    )
+
+    if fields:
+        for name, value, inline in fields:
+            embed.add_field(name=name, value=value, inline=inline)
+
+    if link:
+        embed.add_field(name="", value=f"🔗 [Перейти]({link})", inline=False)
+
+    if footer:
+        embed.add_field(name="", value=footer, inline=False)
+
+    return embed
 
 # ============== ФУНКЦИИ ДЛЯ АВТОДОПОЛНЕНИЯ ==============
 
