@@ -94,13 +94,22 @@ def init_db():
         CREATE TABLE IF NOT EXISTS beacons (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             beacon_id TEXT NOT NULL UNIQUE,
-            current_fuel INTEGER NOT NULL,
-            current_lifetime INTEGER NOT NULL,
-            fuel_consumption_rate INTEGER NOT NULL,
+            current_fuel REAL NOT NULL,  -- меняем на REAL
+            current_lifetime REAL NOT NULL,  -- меняем на REAL
+            fuel_consumption_rate REAL NOT NULL,  -- меняем на REAL
             last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            low_status_sent BOOLEAN DEFAULT FALSE
+            low_status_sent BOOLEAN DEFAULT FALSE,
+            message_link TEXT
         )
     ''')
+
+    # Проверяем, существует ли колонка message_link
+    cursor.execute("PRAGMA table_info(beacons)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if 'message_link' not in columns:
+        cursor.execute("ALTER TABLE beacons ADD COLUMN message_link TEXT")
+        conn.commit()
+
     conn.commit()
     conn.close()
 
@@ -141,21 +150,27 @@ async def update_beacons():
         if hours_passed <= 0:
             continue
 
-        new_fuel = float(beacon['current_fuel']) - float(1 / beacon['fuel_consumption_rate'] * hours_passed)
+        # Правильный расчет расхода топлива
+        # fuel_consumption_rate: 1 (быстрый), 1.5 (средний), 2 (медленный)
+        # Чем выше число, тем медленнее расход
+        fuel_consumption_per_hour = 1 / beacon['fuel_consumption_rate']
+        new_fuel = float(beacon['current_fuel']) - (fuel_consumption_per_hour * hours_passed)
+
+        # Расчет износа
         new_lifetime = float(beacon['current_lifetime']) - (LIFETIME_DECAY_RATE * hours_passed)
 
-        # Гарантируем, что значения не уйдут ниже 0
         old_fuel = beacon['current_fuel']
         old_lifetime = beacon['current_lifetime']
         new_fuel = max(0, new_fuel)
         new_lifetime = max(0, new_lifetime)
 
-        # Логируем значительные изменения (больше 5%)
+        # Логируем изменения
         if old_fuel - new_fuel > 1.5 or old_lifetime - new_lifetime > 5:
             action_logger.debug(
                 f"Auto-update beacon {beacon['beacon_id']}: "
-                f"Fuel {old_fuel:.1f}→{new_fuel:.1f}, "
-                f"Lifetime {old_lifetime:.1f}→{new_lifetime:.1f}"
+                f"Hours passed: {hours_passed:.2f}, "
+                f"Fuel: {old_fuel:.1f}→{new_fuel:.1f}, "
+                f"Lifetime: {old_lifetime:.1f}→{new_lifetime:.1f}"
             )
 
         cursor.execute('''
@@ -392,23 +407,7 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
             fuel_consumption_rate = 2
 
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                '''INSERT INTO beacons 
-                (beacon_id, current_fuel, current_lifetime, fuel_consumption_rate, last_updated, low_status_sent) 
-                VALUES (?, ?, ?, ?, ?, ?)''',
-                (self.beacon_id.value, current_fuel, current_lifetime, fuel_consumption_rate,
-                 datetime.now().isoformat(), False)
-            )
-            conn.commit()
-
-            # Логируем успешное добавление через модалку
-            action_logger.info(
-                f"{user_info} modal added beacon {self.beacon_id.value} | "
-                f"Fuel: {current_fuel}/{MAX_FUEL}, Lifetime: {current_lifetime}%, Priority: {priority}"
-            )
-
+            # Сначала создаем embed и отправляем сообщение, чтобы получить ссылку
             priority_text = {1: "🔴 Высокий", 2: "🟡 Средний", 3: "🟢 Низкий"}[priority]
 
             embed = discord.Embed(
@@ -421,14 +420,35 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
             embed.add_field(name="📊 Приоритет", value=priority_text)
             embed.set_footer(text=f"Добавил: {interaction.user.display_name}")
 
-            # Отправляем подтверждение пользователю
-            await interaction.response.send_message(
-                f"✅ Маяк {self.beacon_id.value} успешно добавлен",
-                ephemeral=True
+            # Отправляем сообщение в канал
+            sent_message = await interaction.channel.send(embed=embed)
+
+            # Сохраняем ссылку на сообщение
+            message_link = sent_message.jump_url
+
+            # Теперь сохраняем в базу данных с ссылкой
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                '''INSERT INTO beacons 
+                (beacon_id, current_fuel, current_lifetime, fuel_consumption_rate, last_updated, low_status_sent, message_link) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                (self.beacon_id.value, current_fuel, current_lifetime, fuel_consumption_rate,
+                 datetime.now().isoformat(), False, message_link)
+            )
+            conn.commit()
+
+            # Логируем успешное добавление
+            action_logger.info(
+                f"{user_info} modal added beacon {self.beacon_id.value} | "
+                f"Fuel: {current_fuel}/{MAX_FUEL}, Lifetime: {current_lifetime}%, Priority: {priority}"
             )
 
-            # Отправляем embed в канал
-            await interaction.channel.send(embed=embed)
+            # Отправляем подтверждение пользователю
+            await interaction.response.send_message(
+                f"✅ Маяк {self.beacon_id.value} успешно добавлен!",
+                ephemeral=True
+            )
 
         except sqlite3.IntegrityError:
             await interaction.response.send_message(
@@ -471,7 +491,8 @@ class RefuelModal(Modal, title="⛽ Заправка маяка"):
         cursor = conn.cursor()
 
         try:
-            cursor.execute('SELECT current_fuel FROM beacons WHERE beacon_id = ?',
+            # Получаем данные маяка, включая ссылку на сообщение
+            cursor.execute('SELECT current_fuel, message_link FROM beacons WHERE beacon_id = ?',
                            (self.beacon_id_input.value,))
             result = cursor.fetchone()
 
@@ -484,6 +505,7 @@ class RefuelModal(Modal, title="⛽ Заправка маяка"):
 
             current = float(result['current_fuel'])
             new_fuel = min(current + amount, MAX_FUEL)
+            message_link = result['message_link']
 
             # Проверяем, нужно ли сбросить статус
             reset_status = (new_fuel / MAX_FUEL) * 100 >= 20
@@ -510,6 +532,10 @@ class RefuelModal(Modal, title="⛽ Заправка маяка"):
             )
             embed.add_field(name="Новое топливо", value=f"{new_fuel}/{MAX_FUEL}")
             embed.add_field(name="Добавлено", value=f"{new_fuel - current:.1f}")
+
+            # Добавляем ссылку на исходное сообщение
+            if message_link:
+                embed.add_field(name="", value=f"🔗[Перейти]({message_link})", inline=False)
 
             # Отправляем подтверждение пользователю
             await interaction.response.send_message(
@@ -567,7 +593,7 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
         params = []
         reset_status = False
         changes = []
-        new_values = {}  # Словарь для хранения новых значений
+        new_values = {}
 
         # Получаем текущие данные маяка для сравнения
         conn = get_db_connection()
@@ -583,10 +609,11 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
             conn.close()
             return
 
-        # Сохраняем текущие значения
+        # Сохраняем текущие значения и ссылку
         old_fuel = float(current_beacon['current_fuel'])
         old_lifetime = float(current_beacon['current_lifetime'])
         old_rate = current_beacon['fuel_consumption_rate']
+        message_link = current_beacon['message_link']
 
         # Обработка приоритета
         if self.priority_input.value:
@@ -612,7 +639,9 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
 
                 updates.append("fuel_consumption_rate = ?")
                 params.append(fuel_consumption_rate)
-                changes.append(f"приоритет: {old_rate}→{fuel_consumption_rate}")
+
+                old_priority_text = "🔴 Высокий" if old_rate == 1 else "🟡 Средний" if old_rate == 1.5 else "🟢 Низкий"
+                changes.append(f"приоритет: {old_priority_text} → {new_priority_text}")
                 new_values['priority'] = new_priority_text
                 new_values['priority_rate'] = fuel_consumption_rate
             except ValueError:
@@ -623,7 +652,6 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                 conn.close()
                 return
         else:
-            # Если приоритет не менялся, используем старый
             if old_rate == 1:
                 new_values['priority'] = "🔴 Высокий"
             elif old_rate == 1.5:
@@ -645,7 +673,7 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                     return
                 updates.append("current_fuel = ?")
                 params.append(new_fuel)
-                changes.append(f"топливо: {old_fuel:.1f}→{new_fuel:.1f}")
+                changes.append(f"топливо: {old_fuel:.1f} → {new_fuel:.1f}")
                 new_values['fuel'] = new_fuel
                 reset_status = reset_status or ((new_fuel / MAX_FUEL) * 100 >= 20)
             except ValueError:
@@ -671,7 +699,7 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                     return
                 updates.append("current_lifetime = ?")
                 params.append(new_lifetime)
-                changes.append(f"прочность: {old_lifetime:.1f}→{new_lifetime:.1f}%")
+                changes.append(f"прочность: {old_lifetime:.1f}% → {new_lifetime:.1f}%")
                 new_values['lifetime'] = new_lifetime
                 reset_status = reset_status or (new_lifetime >= 20)
             except ValueError:
@@ -712,7 +740,7 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                 # Создаем embed с обновленными данными
                 embed = discord.Embed(
                     title="✏️ Маяк отредактирован",
-                    description=f"**{self.beacon_id_input.value}**\nЗаправил: {interaction.user.mention}",
+                    description=f"**{self.beacon_id_input.value}**\nОтредактировал: {interaction.user.mention}",
                     color=discord.Color.gold(),
                     timestamp=datetime.now()
                 )
@@ -734,13 +762,9 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                     inline=True
                 )
 
-                # Добавляем информацию об изменениях
-                if changes:
-                    embed.add_field(
-                        name="📝 Изменения",
-                        value="\n".join([f"• {change}" for change in changes]),
-                        inline=False
-                    )
+                # Добавляем ссылку на исходное сообщение
+                if message_link:
+                    embed.add_field(name="", value=f"🔗 [Перейти]({message_link})", inline=False)
 
                 # Отправляем подтверждение пользователю
                 await interaction.response.send_message(
@@ -768,7 +792,7 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
 
     def __init__(self, beacon_id: str = None):
         super().__init__()
-        self.beacon_id = beacon_id  # Сохраняем ID маяка для проверки
+        self.beacon_id = beacon_id
 
         self.beacon_id_display = TextInput(
             label="ID маяка для удаления",
@@ -791,10 +815,8 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
         self.add_item(self.confirm_name)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Получаем ID маяка из первого поля
         beacon_id = self.beacon_id_display.value
 
-        # Проверяем, совпадает ли подтверждение с ID маяка
         if self.confirm_name.value != beacon_id:
             await interaction.response.send_message(
                 f"❌ Ошибка подтверждения: введенное имя '{self.confirm_name.value}' не совпадает с ID маяка '{beacon_id}'",
@@ -806,9 +828,9 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
         cursor = conn.cursor()
 
         try:
-            # Проверяем, существует ли маяк и получаем его данные
+            # Получаем данные маяка
             cursor.execute(
-                'SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate FROM beacons WHERE beacon_id = ?',
+                'SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate, message_link FROM beacons WHERE beacon_id = ?',
                 (beacon_id,))
             result = cursor.fetchone()
 
@@ -819,12 +841,11 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
                 )
                 return
 
-            # Получаем данные маяка для логирования
             current_fuel = result['current_fuel']
             current_lifetime = result['current_lifetime']
             rate = result['fuel_consumption_rate']
+            message_link = result['message_link']
 
-            # Определяем текстовое описание приоритета
             if rate == 1:
                 priority_text = "🔴 Высокий"
             elif rate == 1.5:
@@ -832,11 +853,9 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
             else:
                 priority_text = "🟢 Низкий"
 
-            # Удаляем маяк
             cursor.execute('DELETE FROM beacons WHERE beacon_id = ?', (beacon_id,))
             conn.commit()
 
-            # Создаем embed для публичного сообщения
             embed = discord.Embed(
                 title="🗑️ Маяк удалён",
                 description=f"**{beacon_id}**\nУдалил: {interaction.user.mention}",
@@ -844,19 +863,21 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
                 timestamp=datetime.now()
             )
 
-            # Логируем удаление
+            # Добавляем информацию об удаленном маяке
+            embed.add_field(name="🔋 Топливо", value=f"{current_fuel}/{MAX_FUEL}", inline=True)
+            embed.add_field(name="🔄 Прочность", value=f"{current_lifetime}%", inline=True)
+            embed.add_field(name="📊 Приоритет", value=priority_text, inline=True)
+
             action_logger.info(
                 f"{get_user_info(interaction)} modal deleted beacon {beacon_id} | "
                 f"Fuel: {current_fuel}/{MAX_FUEL}, Lifetime: {current_lifetime}%, Priority: {priority_text}"
             )
 
-            # Отправляем подтверждение пользователю
             await interaction.response.send_message(
                 f"✅ Маяк {beacon_id} успешно удалён!",
                 ephemeral=True
             )
 
-            # Отправляем embed в канал
             await interaction.channel.send(embed=embed)
 
         except Exception as e:
@@ -995,7 +1016,6 @@ class BeaconSelect(Select):
         await interaction.edit_original_response(embed=embed, view=None)
 
 
-
 async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
     """Показать статус конкретного маяка"""
     user_info = get_user_info(interaction)
@@ -1025,9 +1045,8 @@ async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
         elif beacon['fuel_consumption_rate'] == 1:
             priority_text = "🔴 Высокий(1)"
 
-        # Специальное сообщение для почти сгнивших маяков
         if beacon['current_lifetime'] <= 5:
-            status_msg = "🔴 КРИТИЧЕСКИЙ УРОВЕНЬ - скоро сгниет!"
+            status_msg = "💀 КРИТИЧЕСКИЙ УРОВЕНЬ - скоро сгниет!"
         else:
             status_msg = f"⏳ осталось ~{hours_remaining_lifetime:.1f} часов"
 
@@ -1053,7 +1072,6 @@ async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
             inline=True
         )
 
-        # Добавляем полоски прогресса
         fuel_percent = (beacon['current_fuel'] / MAX_FUEL) * 100
         fuel_bar = "█" * int(fuel_percent / 10) + "░" * (10 - int(fuel_percent / 10))
         lifetime_bar = "█" * int(beacon['current_lifetime'] / 10) + "░" * (10 - int(beacon['current_lifetime'] / 10))
@@ -1064,13 +1082,15 @@ async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
             inline=False
         )
 
-        # Отправляем подтверждение пользователю (скрытое)
+        # Добавляем ссылку на исходное сообщение
+        if beacon['message_link']:
+            embed.add_field(name="", value=f"🔗[Перейти]({beacon['message_link']})", inline=False)
+
         await interaction.response.send_message(
             f"✅ Статус маяка {beacon_id} отправлен в чат",
             ephemeral=True
         )
 
-        # Отправляем embed в канал
         await interaction.channel.send(embed=embed)
 
     except Exception as e:
@@ -1079,6 +1099,7 @@ async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
         await interaction.response.send_message(f"❌ Ошибка: {str(e)}", ephemeral=True)
     finally:
         conn.close()
+
 
 async def show_all_beacons_status(interaction: discord.Interaction):
     """Показать статус всех маяков (публично)"""
@@ -1126,11 +1147,18 @@ async def show_all_beacons_status(interaction: discord.Interaction):
             if beacon['current_lifetime'] <= 20 or fuel_percent <= 20:
                 status_emoji = "⚠️ "
             elif beacon['current_lifetime'] <= 5 or fuel_percent <= 5:
-                status_emoji = "🔴 "
+                status_emoji = "💀 "
+
+            # Формируем имя поля с ссылкой "Перейти"
+            field_value = f"🔋 {fuel_bar} {beacon['current_fuel']:.1f}/{MAX_FUEL}\n🔄 {lifetime_bar} {beacon['current_lifetime']:.1f}%"
+
+            # Добавляем ссылку "Перейти" если есть
+            if beacon['message_link']:
+                field_value += f"\n[Перейти]({beacon['message_link']})"
 
             embed.add_field(
                 name=f"{status_emoji}{priority_text} {beacon['beacon_id']}",
-                value=f"🔋 {fuel_bar} {beacon['current_fuel']:.1f}/{MAX_FUEL}\n🔄 {lifetime_bar} {beacon['current_lifetime']:.1f}%",
+                value=field_value,
                 inline=False
             )
 
