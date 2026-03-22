@@ -104,14 +104,12 @@ def init_db():
     conn.commit()
     conn.close()
 
-
 init_db()
 
 def get_user_info(interaction):
     """Возвращает строку с информацией о пользователе"""
     return f"User: {interaction.user.name} (ID: {interaction.user.id})"
 
-@bot.event
 @bot.event
 async def on_ready():
     print(f'Бот {bot.user} запущен!')
@@ -414,15 +412,23 @@ class AddBeaconModal(Modal, title="➕ Добавление маяка"):
             priority_text = {1: "🔴 Высокий", 2: "🟡 Средний", 3: "🟢 Низкий"}[priority]
 
             embed = discord.Embed(
-                title="✅ Маяк добавлен",
+                title="✅ Новый маяк добавлен",
                 description=f"**{self.beacon_id.value}**",
                 color=discord.Color.green()
             )
             embed.add_field(name="🔋 Топливо", value=f"{current_fuel}/{MAX_FUEL}")
             embed.add_field(name="🔄 Прочность", value=f"{current_lifetime}%")
             embed.add_field(name="📊 Приоритет", value=priority_text)
+            embed.set_footer(text=f"Добавил: {interaction.user.display_name}")
 
-            await interaction.response.send_message(embed=embed)
+            # Отправляем подтверждение пользователю
+            await interaction.response.send_message(
+                f"✅ Маяк {self.beacon_id.value} успешно добавлен",
+                ephemeral=True
+            )
+
+            # Отправляем embed в канал
+            await interaction.channel.send(embed=embed)
 
         except sqlite3.IntegrityError:
             await interaction.response.send_message(
@@ -504,8 +510,16 @@ class RefuelModal(Modal, title="⛽ Заправка маяка"):
             )
             embed.add_field(name="Новое топливо", value=f"{new_fuel}/{MAX_FUEL}")
             embed.add_field(name="Добавлено", value=f"{new_fuel - current:.1f}")
+            embed.set_footer(text=f"Заправил: {interaction.user.display_name}")
 
-            await interaction.response.send_message(embed=embed)
+            # Отправляем подтверждение пользователю
+            await interaction.response.send_message(
+                f"✅ Заправка маяка {self.beacon_id_input.value} выполнена",
+                ephemeral=True
+            )
+
+            # Отправляем embed в канал
+            await interaction.channel.send(embed=embed)
 
         except Exception as e:
             await interaction.response.send_message(f"❌ Ошибка: {str(e)}", ephemeral=True)
@@ -760,7 +774,6 @@ class BeaconSelectView(View):
             return False
         return True
 
-
 class BeaconSelect(Select):
     """Выпадающий список маяков"""
 
@@ -934,8 +947,14 @@ async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
             inline=False
         )
 
-        # Отправляем публично
-        await interaction.response.send_message(embed=embed)
+        # Отправляем подтверждение пользователю (скрытое)
+        await interaction.response.send_message(
+            f"✅ Статус маяка {beacon_id} отправлен в чат",
+            ephemeral=True
+        )
+
+        # Отправляем embed в канал
+        await interaction.channel.send(embed=embed)
 
     except Exception as e:
         error_msg = f"Ошибка при просмотре статуса: {str(e)}"
@@ -943,7 +962,6 @@ async def show_beacon_status(interaction: discord.Interaction, beacon_id: str):
         await interaction.response.send_message(f"❌ Ошибка: {str(e)}", ephemeral=True)
     finally:
         conn.close()
-
 
 async def show_all_beacons_status(interaction: discord.Interaction):
     """Показать статус всех маяков (публично)"""
@@ -984,7 +1002,7 @@ async def show_all_beacons_status(interaction: discord.Interaction):
             fuel_bar = "█" * int(fuel_percent / 10) + "░" * (10 - int(fuel_percent / 10))
 
             lifetime_bar = "█" * int(beacon['current_lifetime'] / 10) + "░" * (
-                        10 - int(beacon['current_lifetime'] / 10))
+                    10 - int(beacon['current_lifetime'] / 10))
 
             # Добавляем индикатор критического состояния
             status_emoji = ""
@@ -1002,8 +1020,14 @@ async def show_all_beacons_status(interaction: discord.Interaction):
         # Добавляем легенду
         embed.set_footer(text="🔴 Высокий | 🟡 Средний | 🟢 Низкий | ⚠️ Требует внимания")
 
-        # Отправляем публично (ephemeral=False)
-        await interaction.response.send_message(embed=embed)
+        # Отправляем подтверждение пользователю
+        await interaction.response.send_message(
+            "✅ Статус всех маяков отправлен в чат",
+            ephemeral=True
+        )
+
+        # Отправляем embed в канал
+        await interaction.channel.send(embed=embed)
 
     except Exception as e:
         error_msg = f"Ошибка при просмотре статуса: {str(e)}"
@@ -1556,7 +1580,7 @@ async def clear(interaction: discord.Interaction):
 @bot.tree.command(name="ping")
 async def ping(interaction: discord.Interaction):
     """Бот жив?"""
-    await interaction.response.send_message("pong")
+    await interaction.response.send_message("🏓 Pong!", ephemeral=True)
 
 
 bot.run(os.getenv("TOKEN"))
