@@ -505,12 +505,11 @@ class RefuelModal(Modal, title="⛽ Заправка маяка"):
 
             embed = discord.Embed(
                 title="⛽ Заправка выполнена",
-                description=f"Маяк **{self.beacon_id_input.value}**",
+                description=f"**{self.beacon_id_input.value}**\nЗаправил: {interaction.user.mention}",
                 color=discord.Color.blue()
             )
             embed.add_field(name="Новое топливо", value=f"{new_fuel}/{MAX_FUEL}")
             embed.add_field(name="Добавлено", value=f"{new_fuel - current:.1f}")
-            embed.set_footer(text=f"Заправил: {interaction.user.display_name}")
 
             # Отправляем подтверждение пользователю
             await interaction.response.send_message(
@@ -567,7 +566,27 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
         updates = []
         params = []
         reset_status = False
-        changes = []  # ← ЭТО БЫЛО ПРОПУЩЕНО
+        changes = []
+        new_values = {}  # Словарь для хранения новых значений
+
+        # Получаем текущие данные маяка для сравнения
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT * FROM beacons WHERE beacon_id = ?', (self.beacon_id_input.value,))
+        current_beacon = cursor.fetchone()
+
+        if not current_beacon:
+            await interaction.response.send_message(
+                f"❌ Маяк {self.beacon_id_input.value} не найден!",
+                ephemeral=True
+            )
+            conn.close()
+            return
+
+        # Сохраняем текущие значения
+        old_fuel = float(current_beacon['current_fuel'])
+        old_lifetime = float(current_beacon['current_lifetime'])
+        old_rate = current_beacon['fuel_consumption_rate']
 
         # Обработка приоритета
         if self.priority_input.value:
@@ -578,24 +597,40 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                         "❌ Ошибка: приоритет должен быть 1, 2 или 3",
                         ephemeral=True
                     )
+                    conn.close()
                     return
 
                 if priority == 1:
                     fuel_consumption_rate = 1
+                    new_priority_text = "🔴 Высокий"
                 elif priority == 2:
                     fuel_consumption_rate = 1.5
+                    new_priority_text = "🟡 Средний"
                 else:
                     fuel_consumption_rate = 2
+                    new_priority_text = "🟢 Низкий"
 
                 updates.append("fuel_consumption_rate = ?")
                 params.append(fuel_consumption_rate)
-                changes.append(f"priority={priority}")  # ← ДОБАВЛЕНО
+                changes.append(f"приоритет: {old_rate}→{fuel_consumption_rate}")
+                new_values['priority'] = new_priority_text
+                new_values['priority_rate'] = fuel_consumption_rate
             except ValueError:
                 await interaction.response.send_message(
                     "❌ Ошибка: приоритет должен быть числом",
                     ephemeral=True
                 )
+                conn.close()
                 return
+        else:
+            # Если приоритет не менялся, используем старый
+            if old_rate == 1:
+                new_values['priority'] = "🔴 Высокий"
+            elif old_rate == 1.5:
+                new_values['priority'] = "🟡 Средний"
+            else:
+                new_values['priority'] = "🟢 Низкий"
+            new_values['priority_rate'] = old_rate
 
         # Обработка топлива
         if self.fuel_input.value:
@@ -606,17 +641,22 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                         f"❌ Ошибка: топливо не может превышать {MAX_FUEL}",
                         ephemeral=True
                     )
+                    conn.close()
                     return
                 updates.append("current_fuel = ?")
                 params.append(new_fuel)
-                changes.append(f"fuel={new_fuel}")  # ← ДОБАВЛЕНО
+                changes.append(f"топливо: {old_fuel:.1f}→{new_fuel:.1f}")
+                new_values['fuel'] = new_fuel
                 reset_status = reset_status or ((new_fuel / MAX_FUEL) * 100 >= 20)
             except ValueError:
                 await interaction.response.send_message(
                     "❌ Ошибка: топливо должно быть числом",
                     ephemeral=True
                 )
+                conn.close()
                 return
+        else:
+            new_values['fuel'] = old_fuel
 
         # Обработка прочности
         if self.lifetime_input.value:
@@ -627,23 +667,29 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                         f"❌ Ошибка: прочность не может превышать {MAX_LIFETIME}%",
                         ephemeral=True
                     )
+                    conn.close()
                     return
                 updates.append("current_lifetime = ?")
                 params.append(new_lifetime)
-                changes.append(f"lifetime={new_lifetime}")  # ← ДОБАВЛЕНО
+                changes.append(f"прочность: {old_lifetime:.1f}→{new_lifetime:.1f}%")
+                new_values['lifetime'] = new_lifetime
                 reset_status = reset_status or (new_lifetime >= 20)
             except ValueError:
                 await interaction.response.send_message(
                     "❌ Ошибка: прочность должна быть числом",
                     ephemeral=True
                 )
+                conn.close()
                 return
+        else:
+            new_values['lifetime'] = old_lifetime
 
         if not updates:
             await interaction.response.send_message(
                 "❌ Не указаны данные для обновления!",
                 ephemeral=True
             )
+            conn.close()
             return
 
         # Добавляем обновление статуса уведомления
@@ -654,8 +700,6 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
         query = f"UPDATE beacons SET {', '.join(updates)}, last_updated = CURRENT_TIMESTAMP WHERE beacon_id = ?"
 
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
             cursor.execute(query, params)
             conn.commit()
 
@@ -665,15 +709,56 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                     ephemeral=True
                 )
             else:
-                await interaction.response.send_message(
-                    f"✅ Данные маяка {self.beacon_id_input.value} успешно обновлены!"
+                # Создаем embed с обновленными данными
+                embed = discord.Embed(
+                    title="✏️ Маяк отредактирован",
+                    description=f"**{self.beacon_id_input.value}**\nЗаправил: {interaction.user.mention}",
+                    color=discord.Color.gold(),
+                    timestamp=datetime.now()
                 )
-                # ← ТЕПЕРЬ changes ОПРЕДЕЛЕНА И ЗАПОЛНЕНА
+
+                # Добавляем поля с новыми значениями
+                embed.add_field(
+                    name="🔋 Топливо",
+                    value=f"{new_values['fuel']:.1f}/{MAX_FUEL}",
+                    inline=True
+                )
+                embed.add_field(
+                    name="🔄 Прочность",
+                    value=f"{new_values['lifetime']:.1f}%",
+                    inline=True
+                )
+                embed.add_field(
+                    name="📊 Приоритет",
+                    value=new_values['priority'],
+                    inline=True
+                )
+
+                # Добавляем информацию об изменениях
+                if changes:
+                    embed.add_field(
+                        name="📝 Изменения",
+                        value="\n".join([f"• {change}" for change in changes]),
+                        inline=False
+                    )
+
+                # Отправляем подтверждение пользователю
+                await interaction.response.send_message(
+                    f"✅ Данные маяка {self.beacon_id_input.value} успешно обновлены!",
+                    ephemeral=True
+                )
+
+                # Отправляем embed в канал
+                await interaction.channel.send(embed=embed)
+
+                # Логируем изменения
                 action_logger.info(
                     f"{get_user_info(interaction)} modal edited beacon {self.beacon_id_input.value}: {', '.join(changes)}"
                 )
+
         except Exception as e:
             await interaction.response.send_message(f"❌ Ошибка: {str(e)}", ephemeral=True)
+            error_logger.error(f"{get_user_info(interaction)} Ошибка при редактировании: {str(e)}", exc_info=True)
         finally:
             conn.close()
 
@@ -721,8 +806,10 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
         cursor = conn.cursor()
 
         try:
-            # Проверяем, существует ли маяк
-            cursor.execute('SELECT beacon_id FROM beacons WHERE beacon_id = ?', (beacon_id,))
+            # Проверяем, существует ли маяк и получаем его данные
+            cursor.execute(
+                'SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate FROM beacons WHERE beacon_id = ?',
+                (beacon_id,))
             result = cursor.fetchone()
 
             if not result:
@@ -732,23 +819,53 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
                 )
                 return
 
+            # Получаем данные маяка для логирования
+            current_fuel = result['current_fuel']
+            current_lifetime = result['current_lifetime']
+            rate = result['fuel_consumption_rate']
+
+            # Определяем текстовое описание приоритета
+            if rate == 1:
+                priority_text = "🔴 Высокий"
+            elif rate == 1.5:
+                priority_text = "🟡 Средний"
+            else:
+                priority_text = "🟢 Низкий"
+
             # Удаляем маяк
             cursor.execute('DELETE FROM beacons WHERE beacon_id = ?', (beacon_id,))
             conn.commit()
 
+            # Создаем embed для публичного сообщения
             embed = discord.Embed(
-                title="✅ Маяк удалён",
-                description=f"Маяк **{beacon_id}** успешно удалён",
-                color=discord.Color.green()
+                title="🗑️ Маяк удалён",
+                description=f"**{beacon_id}**\nУдалил: {interaction.user.mention}",
+                color=discord.Color.red(),
+                timestamp=datetime.now()
             )
-            action_logger.info(f"{get_user_info(interaction)} modal deleted beacon {beacon_id}")
-            await interaction.response.send_message(embed=embed)
+
+            # Логируем удаление
+            action_logger.info(
+                f"{get_user_info(interaction)} modal deleted beacon {beacon_id} | "
+                f"Fuel: {current_fuel}/{MAX_FUEL}, Lifetime: {current_lifetime}%, Priority: {priority_text}"
+            )
+
+            # Отправляем подтверждение пользователю
+            await interaction.response.send_message(
+                f"✅ Маяк {beacon_id} успешно удалён!",
+                ephemeral=True
+            )
+
+            # Отправляем embed в канал
+            await interaction.channel.send(embed=embed)
 
         except Exception as e:
             await interaction.response.send_message(
                 f"❌ Ошибка при удалении: {str(e)}",
                 ephemeral=True
             )
+            error_logger.error(f"{get_user_info(interaction)} Ошибка при удалении маяка {beacon_id}: {str(e)}",
+                               exc_info=True)
         finally:
             conn.close()
 
@@ -1215,9 +1332,10 @@ class BeaconMenuView(View):
 
         # Создаем кнопки для подтверждения
         class ConfirmClearView(View):
-            def __init__(self, original_user):
+            def __init__(self, original_user, original_interaction):
                 super().__init__(timeout=30)
                 self.original_user = original_user
+                self.original_interaction = original_interaction
 
             @discord.ui.button(label="Да, удалить всё", style=discord.ButtonStyle.danger, emoji="✅")
             async def confirm_button(self, btn_interaction: discord.Interaction, button: Button):
@@ -1233,7 +1351,8 @@ class BeaconMenuView(View):
                     cursor = conn.cursor()
 
                     # Получаем список маяков до удаления
-                    cursor.execute('SELECT beacon_id FROM beacons')
+                    cursor.execute(
+                        'SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate FROM beacons')
                     beacons = cursor.fetchall()
                     beacon_list = [b['beacon_id'] for b in beacons]
                     count_before = len(beacon_list)
@@ -1249,22 +1368,40 @@ class BeaconMenuView(View):
                             f"Deleted: {count_before} beacons: {', '.join(beacon_list)}"
                         )
 
+                    # Создаем публичный embed об очистке
                     embed = discord.Embed(
-                        title="✅ Успешно",
-                        description=f"Все маяки ({count_before}) успешно удалены!",
-                        color=discord.Color.green()
+                        title="🧹 Очистка всех маяков",
+                        description=f"**Удалено маяков: {count_before}**\nОчистил: {btn_interaction.user.mention}",
+                        color=discord.Color.red(),
+                        timestamp=datetime.now()
                     )
-                    await btn_interaction.response.edit_message(embed=embed, view=None)
+
+                    if count_before > 0:
+                        embed.add_field(
+                            name="📋 Список удаленных маяков",
+                            value=", ".join(beacon_list[:10]) + (
+                                f" и еще {len(beacon_list) - 10}" if len(beacon_list) > 10 else ""),
+                            inline=False
+                        )
+
+                    # Отправляем публичное сообщение в канал
+                    await btn_interaction.channel.send(embed=embed)
+
+                    # Обновляем эфемерное сообщение
+                    await btn_interaction.response.edit_message(
+                        content=f"✅ Все маяки ({count_before}) успешно удалены!",
+                        embed=None,
+                        view=None
+                    )
 
                 except Exception as e:
                     error_msg = f"Ошибка при очистке всех маяков: {str(e)}"
                     error_logger.error(f"{get_user_info(btn_interaction)} {error_msg}", exc_info=True)
-                    embed = discord.Embed(
-                        title="❌ Ошибка",
-                        description=f"Произошла ошибка при удалении: {str(e)}",
-                        color=discord.Color.red()
+                    await btn_interaction.response.edit_message(
+                        content=f"❌ Ошибка при удалении: {str(e)}",
+                        embed=None,
+                        view=None
                     )
-                    await btn_interaction.response.edit_message(embed=embed, view=None)
                 finally:
                     conn.close()
 
@@ -1277,26 +1414,27 @@ class BeaconMenuView(View):
                     )
                     return
 
-                embed = discord.Embed(
-                    title="❌ Отменено",
-                    description="Очистка маяков отменена.",
-                    color=discord.Color.red()
+                await btn_interaction.response.edit_message(
+                    content="❌ Очистка маяков отменена.",
+                    embed=None,
+                    view=None
                 )
-                await btn_interaction.response.edit_message(embed=embed, view=None)
 
             async def on_timeout(self):
+                # При таймауте деактивируем кнопки
                 for item in self.children:
                     item.disabled = True
                 try:
-                    embed = discord.Embed(
-                        title="⌛ Время истекло",
-                        description="Время подтверждения истекло. Очистка отменена.",
-                        color=discord.Color.orange()
+                    # Обновляем эфемерное сообщение
+                    await self.original_interaction.edit_original_response(
+                        content="⌛ Время подтверждения истекло. Очистка отменена.",
+                        embed=None,
+                        view=self
                     )
-                    await interaction.edit_original_response(embed=embed, view=self)
                 except:
                     pass
 
+        # Создаем embed с запросом подтверждения
         embed = discord.Embed(
             title="⚠️ Подтверждение действия",
             description="Вы уверены, что хотите удалить **ВСЕ** маяки?\nЭто действие нельзя отменить!",
@@ -1304,8 +1442,9 @@ class BeaconMenuView(View):
         )
         embed.set_footer(text="У вас есть 30 секунд на подтверждение")
 
-        view = ConfirmClearView(interaction.user)
-        await interaction.response.send_message(embed=embed, view=view)
+        # Отправляем эфемерное сообщение с кнопками
+        view = ConfirmClearView(interaction.user, interaction)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 # ============== КОМАНДЫ БОТА ==============
@@ -1397,7 +1536,6 @@ async def status(interaction: discord.Interaction):
     view = BeaconSelectView("status", interaction.user.id)
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-
 @bot.tree.command(name="edit", description="Редактировать данные маяка")
 async def edit(interaction: discord.Interaction):
     """Редактировать данные маяка через интерфейс"""
@@ -1426,8 +1564,7 @@ async def edit(interaction: discord.Interaction):
     view = BeaconSelectView("edit", interaction.user.id)
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-
-@bot.tree.command(name="delete", description="Удалить маяк по ID")
+@bot.tree.command(name="delete", description="Удалить маяк")
 async def delete(interaction: discord.Interaction):
     """Удалить маяк через интерфейс"""
     user_info = get_user_info(interaction)
@@ -1499,7 +1636,7 @@ async def clear(interaction: discord.Interaction):
                 cursor = conn.cursor()
 
                 # Получаем список маяков до удаления
-                cursor.execute('SELECT beacon_id FROM beacons')
+                cursor.execute('SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate FROM beacons')
                 beacons = cursor.fetchall()
                 beacon_list = [b['beacon_id'] for b in beacons]
                 count_before = len(beacon_list)
@@ -1515,22 +1652,40 @@ async def clear(interaction: discord.Interaction):
                         f"Deleted: {count_before} beacons: {', '.join(beacon_list)}"
                     )
 
+                # Создаем публичный embed об очистке
                 embed = discord.Embed(
-                    title="✅ Успешно",
-                    description=f"Все маяки ({count_before}) успешно удалены!",
-                    color=discord.Color.green()
+                    title="🧹 Очистка всех маяков",
+                    description=f"**Удалено маяков: {count_before}**\nОчистил: {button_interaction.user.mention}",
+                    color=discord.Color.red(),
+                    timestamp=datetime.now()
                 )
-                await button_interaction.response.edit_message(embed=embed, view=None)
+
+                if count_before > 0:
+                    embed.add_field(
+                        name="📋 Список удаленных маяков",
+                        value=", ".join(beacon_list[:10]) + (
+                            f" и еще {len(beacon_list) - 10}" if len(beacon_list) > 10 else ""),
+                        inline=False
+                    )
+
+                # Отправляем публичное сообщение в канал
+                await button_interaction.channel.send(embed=embed)
+
+                # Обновляем эфемерное сообщение
+                await button_interaction.response.edit_message(
+                    content=f"✅ Все маяки ({count_before}) успешно удалены!",
+                    embed=None,
+                    view=None
+                )
 
             except Exception as e:
                 error_msg = f"Ошибка при очистке всех маяков: {str(e)}"
                 error_logger.error(f"{get_user_info(button_interaction)} {error_msg}", exc_info=True)
-                embed = discord.Embed(
-                    title="❌ Ошибка",
-                    description=f"Произошла ошибка при удалении: {str(e)}",
-                    color=discord.Color.red()
+                await button_interaction.response.edit_message(
+                    content=f"❌ Ошибка при удалении: {str(e)}",
+                    embed=None,
+                    view=None
                 )
-                await button_interaction.response.edit_message(embed=embed, view=None)
             finally:
                 conn.close()
 
@@ -1543,24 +1698,22 @@ async def clear(interaction: discord.Interaction):
                 )
                 return
 
-            embed = discord.Embed(
-                title="❌ Отменено",
-                description="Очистка маяков отменена.",
-                color=discord.Color.red()
+            await button_interaction.response.edit_message(
+                content="❌ Очистка маяков отменена.",
+                embed=None,
+                view=None
             )
-            await button_interaction.response.edit_message(embed=embed, view=None)
 
         async def on_timeout(self):
             # При таймауте деактивируем кнопки
             for item in self.children:
                 item.disabled = True
             try:
-                embed = discord.Embed(
-                    title="⌛ Время истекло",
-                    description="Время подтверждения истекло. Очистка отменена.",
-                    color=discord.Color.orange()
+                await interaction.edit_original_response(
+                    content="⌛ Время подтверждения истекло. Очистка отменена.",
+                    embed=None,
+                    view=self
                 )
-                await interaction.edit_original_response(embed=embed, view=self)
             except:
                 pass
 
@@ -1572,9 +1725,9 @@ async def clear(interaction: discord.Interaction):
     )
     embed.set_footer(text="У вас есть 30 секунд на подтверждение")
 
-    # Отправляем сообщение с кнопками
+    # Отправляем сообщение с кнопками (эфемерное)
     view = ConfirmView()
-    await interaction.response.send_message(embed=embed, view=view)
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
 @bot.tree.command(name="ping")
