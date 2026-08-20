@@ -7,6 +7,8 @@ from logging.handlers import RotatingFileHandler
 
 import discord
 from discord.ui import Button, View, Modal, TextInput, Select
+import asyncio
+from datetime import datetime, timedelta
 from discord.ext import tasks
 from discord import app_commands
 from dotenv import load_dotenv
@@ -63,6 +65,8 @@ FUEL_MEDIUM_CONSUMPTION_RATE = 1 / 1.5  # Ориентировочный рас�
 FUEL_LOW_CONSUMPTION_RATE = 1 / 1.9  # 1 единица топлива расходуется за 1 часа если маяк в тылу
 LIFETIME_DECAY_RATE = 100 / 48  # 100% расходуется за 48 часа (в процентах в час)
 
+RELIC_CHANNEL_ID = int(os.getenv("RELIC_CHANNEL_ID", 0))  # 0 если не задан
+
 intents = discord.Intents.default()
 intents.message_content = True
 
@@ -78,6 +82,181 @@ class SlashClient(discord.Client):
         await self.tree.sync(guild=guild)
 
 
+class RelicTimer:
+    """Класс для управления таймером реликвии"""
+
+    def __init__(self, channel_id: int):
+        self.channel_id = channel_id
+        self.tasks = {}  # Словарь для хранения задач по каналам
+        self.timer_messages = {}  # Словарь для хранения сообщений таймера
+        self.timer_start_time = None  # Время запуска таймера
+        self.timer_duration = None  # Длительность таймера в минутах
+
+    async def start_timer(self, bot, minutes: int = 90):
+        """Запустить таймер в указанном канале"""
+
+        # Получаем канал по ID
+        channel = bot.get_channel(self.channel_id)
+        if not channel:
+            error_logger.error(f"Channel {self.channel_id} not found for relic timer!")
+            return None
+
+        # Если уже есть таймер в этом канале, отменяем его
+        if self.channel_id in self.tasks:
+            self.tasks[self.channel_id].cancel()
+            del self.tasks[self.channel_id]
+
+        # Сохраняем время запуска и длительность
+        self.timer_start_time = datetime.now()
+        self.timer_duration = minutes
+
+        # Создаем задачу
+        task = asyncio.create_task(self._run_timer(bot, minutes))
+        self.tasks[self.channel_id] = task
+
+        # Логируем запуск таймера
+        action_logger.info(
+            f"Relic timer started in channel {channel.name} (ID: {self.channel_id}) for {minutes} minutes")
+
+        return task
+
+    async def _run_timer(self, bot, minutes: int):
+        """Основная логика таймера"""
+        try:
+            # Получаем канал
+            channel = bot.get_channel(self.channel_id)
+            if not channel:
+                error_logger.error(f"Channel {self.channel_id} not found for relic timer!")
+                return
+
+            # Ждем указанное время минус 10 минут
+            wait_time = (minutes - 10) * 60  # переводим в секунды
+            if wait_time > 0:
+                await asyncio.sleep(wait_time)
+
+            # Получаем канал еще раз (на случай перезагрузки)
+            channel = bot.get_channel(self.channel_id)
+            if not channel:
+                error_logger.error(f"Channel {self.channel_id} not found for relic timer!")
+                return
+
+            # Отправляем предупреждение за 10 минут
+            embed = discord.Embed(
+                title="⚔️ РЕЛИКВИЯ СКОРО ПОЯВИТСЯ!",
+                description="Через ~10 минут появится реликвия. Вооружайтесь и будьте готовы к бою!",
+                color=discord.Color.gold(),
+                timestamp=datetime.now()
+            )
+            embed.add_field(
+                name="⏰ Время до появления",
+                value=f"**~10 минут**",
+                inline=True
+            )
+            embed.add_field(
+                name="📢 Приготовьтесь!",
+                value="Соберите команду и подготовьте снаряжение!",
+                inline=True
+            )
+            embed.set_footer(text="Не пропустите появление реликвии!")
+
+            # Отправляем сообщение (без @everyone)
+            await channel.send(embed=embed)
+
+            # Ждем оставшиеся 10 минут
+            await asyncio.sleep(600)  # 10 минут
+
+            # Получаем канал еще раз
+            channel = bot.get_channel(self.channel_id)
+            if not channel:
+                error_logger.error(f"Channel {self.channel_id} not found for relic timer!")
+                return
+
+            # Отправляем финальное сообщение о появлении
+            final_embed = discord.Embed(
+                title="✨ РЕЛИКВИЯ ПОЯВИЛАСЬ!",
+                description="**Реликвия появилась!** Спешите её заполучить!",
+                color=discord.Color.purple(),
+                timestamp=datetime.now()
+            )
+            final_embed.add_field(
+                name="🎯 Действуйте!",
+                value="Реликвия ждёт своего героя!",
+                inline=False
+            )
+
+            await channel.send(embed=final_embed)
+
+            # Удаляем задачу из словаря после завершения
+            if self.channel_id in self.tasks:
+                del self.tasks[self.channel_id]
+
+            # Очищаем данные о времени
+            self.timer_start_time = None
+            self.timer_duration = None
+
+            action_logger.info(f"Relic timer completed in channel {channel.name} (ID: {self.channel_id})")
+
+        except asyncio.CancelledError:
+            # Таймер был отменен
+            if self.channel_id in self.tasks:
+                del self.tasks[self.channel_id]
+
+            # Очищаем данные о времени при отмене
+            self.timer_start_time = None
+            self.timer_duration = None
+
+            action_logger.info(f"Relic timer cancelled in channel ID: {self.channel_id}")
+            raise
+
+    def cancel_timer(self):
+        """Отменить таймер"""
+        if self.channel_id in self.tasks:
+            self.tasks[self.channel_id].cancel()
+            del self.tasks[self.channel_id]
+
+            # Очищаем данные о времени
+            self.timer_start_time = None
+            self.timer_duration = None
+            return True
+        return False
+
+    def is_active(self):
+        """Проверить, активен ли таймер"""
+        return self.channel_id in self.tasks
+
+    def get_remaining_time(self):
+        """Получить оставшееся время в секундах"""
+        if not self.is_active() or self.timer_start_time is None or self.timer_duration is None:
+            return None
+
+        elapsed = (datetime.now() - self.timer_start_time).total_seconds()
+        total_seconds = self.timer_duration * 60
+        remaining = max(0, total_seconds - elapsed)
+        return remaining
+
+    def get_remaining_time_formatted(self):
+        """Получить отформатированное оставшееся время"""
+        remaining = self.get_remaining_time()
+        if remaining is None:
+            return "Неактивен"
+
+        if remaining <= 0:
+            return "0 минут"
+
+        hours = int(remaining // 3600)
+        minutes = int((remaining % 3600) // 60)
+        seconds = int(remaining % 60)
+
+        if hours > 0:
+            return f"{hours} ч {minutes} мин {seconds} сек"
+        elif minutes > 0:
+            return f"{minutes} мин {seconds} сек"
+        else:
+            return f"{seconds} сек"
+
+
+# Создаем глобальный экземпляр таймера
+relic_timer = RelicTimer(RELIC_CHANNEL_ID)
 bot = SlashClient()
 
 
@@ -373,6 +552,27 @@ async def check_beacons():
     finally:
         conn.close()
 
+
+# ============== ФУНКЦИИ ДЛЯ АВТОДОПОЛНЕНИЯ КОМАНДЫ RELIC ==============
+
+async def get_minute_options(interaction: discord.Interaction, current: str) -> List[app_commands.Choice[int]]:
+    """Возвращает список вариантов минут для автодополнения"""
+    # Стандартные варианты
+    options = [
+        (90, "90 минут (1 час 30 минут)"),
+        (60, "60 минут (1 час)"),
+        (120, "120 минут (2 часа)"),
+        (30, "30 минут"),
+        (45, "45 минут"),
+        (15, "15 минут"),
+    ]
+
+    choices = []
+    for value, name in options:
+        if not current or current.isdigit() and str(value).startswith(current):
+            choices.append(app_commands.Choice(name=name, value=value))
+
+    return choices[:25]
 
 def get_priority_text(rate: float) -> tuple:
     """Возвращает эмодзи и текст приоритета по значению rate"""
@@ -2294,4 +2494,301 @@ async def ping(interaction: discord.Interaction):
     await interaction.response.send_message("🏓 Pong!", ephemeral=True)
 
 
+# ============== КОМАНДА RELIC ==============
+
+@bot.tree.command(name="relic", description="Запустить таймер до появления реликвии (по умолчанию 90 минут)")
+@app_commands.describe(
+    minutes="Время до появления реликвии в минутах (по умолчанию 90)"
+)
+@app_commands.autocomplete(minutes=get_minute_options)
+async def relic(
+        interaction: discord.Interaction,
+        minutes: Optional[int] = None
+):
+    """
+    Запустить таймер до появления реликвии.
+    По умолчанию: 90 минут (1 час 30 минут).
+    Можно указать другое время в минутах.
+    """
+    user_info = get_user_info(interaction)
+
+    # Проверяем, настроен ли канал для реликвий
+    if RELIC_CHANNEL_ID == 0:
+        await interaction.response.send_message(
+            "❌ Канал для реликвий не настроен! Добавьте RELIC_CHANNEL в .env файл.",
+            ephemeral=True
+        )
+        error_logger.error(f"{user_info} tried to use /relic but RELIC_CHANNEL is not configured")
+        return
+
+    # Получаем канал
+    relic_channel = bot.get_channel(RELIC_CHANNEL_ID)
+    if not relic_channel:
+        await interaction.response.send_message(
+            f"❌ Канал с ID {RELIC_CHANNEL_ID} не найден! Проверьте настройки.",
+            ephemeral=True
+        )
+        error_logger.error(f"{user_info} tried to use /relic but channel {RELIC_CHANNEL_ID} not found")
+        return
+
+    # Устанавливаем время по умолчанию
+    if minutes is None:
+        minutes = 90
+    elif minutes < 1:
+        await interaction.response.send_message(
+            "❌ Время должно быть больше 0 минут!",
+            ephemeral=True
+        )
+        return
+    elif minutes > 1440:  # Максимум 24 часа
+        await interaction.response.send_message(
+            "❌ Время не должно превышать 1440 минут (24 часа)!",
+            ephemeral=True
+        )
+        return
+
+    # Проверяем, есть ли уже активный таймер
+    if relic_timer.is_active():
+        # Создаем кнопки для управления
+        class TimerManageView(View):
+            def __init__(self):
+                super().__init__(timeout=30)
+
+            @discord.ui.button(label="Отменить таймер", style=discord.ButtonStyle.danger, emoji="⏹️")
+            async def cancel_timer_button(self, btn_interaction: discord.Interaction, button: Button):
+                if btn_interaction.user.id != interaction.user.id:
+                    await btn_interaction.response.send_message(
+                        "❌ Вы не можете управлять этим таймером!",
+                        ephemeral=True
+                    )
+                    return
+
+                if relic_timer.cancel_timer():
+                    embed = discord.Embed(
+                        title="⏹️ Таймер отменен",
+                        description="Таймер появления реликвии был отменен.",
+                        color=discord.Color.red(),
+                        timestamp=datetime.now()
+                    )
+                    await btn_interaction.response.edit_message(
+                        embed=embed,
+                        view=None
+                    )
+                    action_logger.info(
+                        f"{get_user_info(btn_interaction)} cancelled relic timer")
+                else:
+                    await btn_interaction.response.edit_message(
+                        content="❌ Таймер не найден или уже завершен.",
+                        view=None
+                    )
+
+            @discord.ui.button(label="Перезапустить", style=discord.ButtonStyle.primary, emoji="🔄")
+            async def restart_timer_button(self, btn_interaction: discord.Interaction, button: Button):
+                if btn_interaction.user.id != interaction.user.id:
+                    await btn_interaction.response.send_message(
+                        "❌ Вы не можете управлять этим таймером!",
+                        ephemeral=True
+                    )
+                    return
+
+                # Отменяем старый таймер
+                relic_timer.cancel_timer()
+
+                # Запускаем новый
+                await relic_timer.start_timer(bot, minutes)
+
+                hours = minutes // 60
+                mins = minutes % 60
+                time_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
+
+                embed = discord.Embed(
+                    title="🔄 Таймер перезапущен",
+                    description=f"Таймер появления реликвии перезапущен на **{time_str}**",
+                    color=discord.Color.blue(),
+                    timestamp=datetime.now()
+                )
+                embed.add_field(
+                    name="⏰ Время до появления",
+                    value=f"**{time_str}**",
+                    inline=True
+                )
+                embed.add_field(
+                    name="📢 Уведомление",
+                    value="За 10 минут до появления будет отправлено предупреждение",
+                    inline=False
+                )
+                embed.add_field(
+                    name="📌 Канал",
+                    value=f"{relic_channel.mention}",
+                    inline=False
+                )
+
+                await btn_interaction.response.edit_message(
+                    embed=embed,
+                    view=None
+                )
+
+                action_logger.info(
+                    f"{get_user_info(btn_interaction)} restarted relic timer for {minutes} minutes")
+
+        # Если таймер уже есть, предлагаем управление
+        embed = discord.Embed(
+            title="⏳ Таймер уже запущен",
+            description=f"В канале {relic_channel.mention} уже запущен таймер появления реликвии.",
+            color=discord.Color.orange()
+        )
+        embed.add_field(
+            name="🔄 Что делать?",
+            value="Вы можете отменить текущий таймер или перезапустить его с новым временем.",
+            inline=False
+        )
+
+        view = TimerManageView()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+        return
+
+    # Запускаем новый таймер в указанном канале
+    await relic_timer.start_timer(bot, minutes)
+
+    hours = minutes // 60
+    mins = minutes % 60
+    time_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
+
+    # Создаем embed с информацией (эфемерное сообщение)
+    embed = discord.Embed(
+        title="⏳ Таймер реликвии запущен",
+        description=f"Реликвия появится через **{time_str}**",
+        color=discord.Color.gold(),
+        timestamp=datetime.now()
+    )
+    embed.add_field(
+        name="📢 Уведомление",
+        value="За 10 минут до появления будет отправлено предупреждение",
+        inline=False
+    )
+    embed.add_field(
+        name="⏰ Время появления",
+        value=f"~{datetime.now().strftime('%H:%M')} + {time_str}",
+        inline=True
+    )
+    embed.add_field(
+        name="📌 Канал",
+        value=f"{relic_channel.mention}",
+        inline=True
+    )
+    embed.add_field(
+        name="📊 Статус",
+        value="🟢 Активен",
+        inline=True
+    )
+    embed.set_footer(text=f"Запустил: {interaction.user.name}")
+
+    # Отправляем эфемерное сообщение пользователю
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # Логируем
+    action_logger.info(
+        f"{user_info} started relic timer in channel {relic_channel.name} (ID: {relic_channel.id}) for {minutes} minutes"
+    )
+
+@bot.tree.command(name="relic_cancel", description="Отменить запущенный таймер реликвии")
+async def relic_cancel(interaction: discord.Interaction):
+    """Отменить таймер реликвии"""
+    user_info = get_user_info(interaction)
+
+    # Проверяем, настроен ли канал для реликвий
+    if RELIC_CHANNEL_ID == 0:
+        await interaction.response.send_message(
+            "❌ Канал для реликвий не настроен!",
+            ephemeral=True
+        )
+        return
+
+    if relic_timer.cancel_timer():
+        embed = discord.Embed(
+            title="⏹️ Таймер отменен",
+            description="Таймер появления реликвии был успешно отменен.",
+            color=discord.Color.red(),
+            timestamp=datetime.now()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        action_logger.info(f"{user_info} cancelled relic timer")
+    else:
+        await interaction.response.send_message(
+            "❌ Нет активного таймера реликвии.",
+            ephemeral=True
+        )
+
+
+@bot.tree.command(name="relic_status", description="Показать статус таймера реликвии")
+async def relic_status(interaction: discord.Interaction):
+    """Показать статус таймера реликвии"""
+
+    # Проверяем, настроен ли канал для реликвий
+    if RELIC_CHANNEL_ID == 0:
+        await interaction.response.send_message(
+            "❌ Канал для реликвий не настроен!",
+            ephemeral=True
+        )
+        return
+
+    relic_channel = bot.get_channel(RELIC_CHANNEL_ID)
+    if not relic_channel:
+        await interaction.response.send_message(
+            f"❌ Канал с ID {RELIC_CHANNEL_ID} не найден!",
+            ephemeral=True
+        )
+        return
+
+    if relic_timer.is_active():
+        # Получаем оставшееся время
+        remaining_time = relic_timer.get_remaining_time_formatted()
+
+        embed = discord.Embed(
+            title="⏳ Таймер реликвии активен",
+            description=f"В канале {relic_channel.mention} запущен таймер появления реликвии.",
+            color=discord.Color.green(),
+            timestamp=datetime.now()
+        )
+
+        # Добавляем информацию об оставшемся времени
+        embed.add_field(
+            name="⏱️ Оставшееся время",
+            value=f"**{remaining_time}**",
+            inline=False
+        )
+
+        embed.add_field(
+            name="📢 Уведомление",
+            value="За 10 минут до появления будет отправлено предупреждение",
+            inline=True
+        )
+        embed.add_field(
+            name="📌 Канал",
+            value=f"{relic_channel.mention}",
+            inline=True
+        )
+
+        # Добавляем примерное время появления со знаком ~
+        if relic_timer.timer_start_time and relic_timer.timer_duration:
+            appear_time = relic_timer.timer_start_time + timedelta(minutes=relic_timer.timer_duration)
+            embed.add_field(
+                name="⏰ Примерное время появления",
+                value=f"~{appear_time.strftime('%H:%M:%S')}",
+                inline=False
+            )
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    else:
+        embed = discord.Embed(
+            title="❌ Таймер не активен",
+            description="Нет запущенного таймера реликвии.",
+            color=discord.Color.red()
+        )
+        embed.add_field(
+            name="💡 Запустить таймер",
+            value="Используйте команду `/relic` для запуска таймера",
+            inline=False
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 bot.run(os.getenv("TOKEN"))
