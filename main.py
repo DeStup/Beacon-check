@@ -140,6 +140,10 @@ class RelicTimer:
                 error_logger.error(f"Channel {self.channel_id} not found for relic timer!")
                 return
 
+            # Вычисляем время появления для timestamp
+            appear_time = datetime.now() + timedelta(minutes=10)
+            unix_timestamp = int(appear_time.timestamp())
+
             # Отправляем предупреждение за 10 минут
             embed = discord.Embed(
                 title="⚔️ РЕЛИКВИЯ СКОРО ПОЯВИТСЯ!",
@@ -148,9 +152,9 @@ class RelicTimer:
                 timestamp=datetime.now()
             )
             embed.add_field(
-                name="⏰ Время до появления",
-                value=f"**~10 минут**",
-                inline=True
+                name="⏰ Время появления",
+                value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
+                inline=False
             )
             embed.add_field(
                 name="📢 Приготовьтесь!",
@@ -2601,6 +2605,10 @@ async def relic(
                 mins = minutes % 60
                 time_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
 
+                # Вычисляем время появления для timestamp
+                appear_time = datetime.now() + timedelta(minutes=minutes)
+                unix_timestamp = int(appear_time.timestamp())
+
                 embed = discord.Embed(
                     title="🔄 Таймер перезапущен",
                     description=f"Таймер появления реликвии перезапущен на **{time_str}**",
@@ -2608,8 +2616,8 @@ async def relic(
                     timestamp=datetime.now()
                 )
                 embed.add_field(
-                    name="⏰ Время до появления",
-                    value=f"**{time_str}**",
+                    name="⏰ Время появления",
+                    value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
                     inline=True
                 )
                 embed.add_field(
@@ -2647,12 +2655,16 @@ async def relic(
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
         return
 
-    # Запускаем новый таймер в указанном канале
+        # Запускаем новый таймер в указанном канале
     await relic_timer.start_timer(bot, minutes)
 
     hours = minutes // 60
     mins = minutes % 60
     time_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
+
+    # Вычисляем время появления для timestamp
+    appear_time = datetime.now() + timedelta(minutes=minutes)
+    unix_timestamp = int(appear_time.timestamp())
 
     # Создаем embed с информацией (эфемерное сообщение)
     embed = discord.Embed(
@@ -2668,7 +2680,7 @@ async def relic(
     )
     embed.add_field(
         name="⏰ Время появления",
-        value=f"~{datetime.now().strftime('%H:%M')} + {time_str}",
+        value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
         inline=True
     )
     embed.add_field(
@@ -2685,11 +2697,6 @@ async def relic(
 
     # Отправляем эфемерное сообщение пользователю
     await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    # Логируем
-    action_logger.info(
-        f"{user_info} started relic timer in channel {relic_channel.name} (ID: {relic_channel.id}) for {minutes} minutes"
-    )
 
 @bot.tree.command(name="relic_cancel", description="Отменить запущенный таймер реликвии")
 async def relic_cancel(interaction: discord.Interaction):
@@ -2769,12 +2776,15 @@ async def relic_status(interaction: discord.Interaction):
             inline=True
         )
 
-        # Добавляем примерное время появления со знаком ~
+        # Добавляем примерное время появления в Discord timestamp
         if relic_timer.timer_start_time and relic_timer.timer_duration:
             appear_time = relic_timer.timer_start_time + timedelta(minutes=relic_timer.timer_duration)
+            # Конвертируем в Unix timestamp (секунды)
+            unix_timestamp = int(appear_time.timestamp())
+            # Используем формат t (краткое время) или f (полное время)
             embed.add_field(
                 name="⏰ Примерное время появления",
-                value=f"~{appear_time.strftime('%H:%M:%S')}",
+                value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
                 inline=False
             )
 
