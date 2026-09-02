@@ -8,7 +8,7 @@ from utils.formatting import (
     priority_emoji,
     rate_from_priority,
 )
-from utils.logging_setup import action_logger, error_logger, relic_logger, setup_logging
+from utils.logging_setup import action_logger, error_logger, relic_logger, setup_logging, system_logger
 from utils.permissions import can_clear_beacons
 
 __all__ = [
@@ -23,5 +23,6 @@ __all__ = [
     "rate_from_priority",
     "relic_logger",
     "setup_logging",
+    "system_logger",
     "status_emoji",
 ]

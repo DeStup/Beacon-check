@@ -8,8 +8,13 @@ from logging.handlers import RotatingFileHandler
 import config
 
 
-def setup_logging() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
-    """Возвращает (action_logger, error_logger, relic_logger)."""
+def setup_logging() -> tuple[
+    logging.Logger,
+    logging.Logger,
+    logging.Logger,
+    logging.Logger,
+]:
+    """Возвращает (action_logger, error_logger, relic_logger, system_logger)."""
     config.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     formatter = logging.Formatter(
@@ -19,6 +24,7 @@ def setup_logging() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
 
     action = logging.getLogger("beacon_actions")
     relic = logging.getLogger("relic_actions")
+    system = logging.getLogger("system")
     errors = logging.getLogger("beacon_errors")
 
     if not action.handlers:
@@ -32,9 +38,11 @@ def setup_logging() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
         action.addHandler(action_handler)
         action.setLevel(logging.INFO)
 
-        # Один файл actions.log, разные имена логгеров в записи
+        # Один файл actions.log: beacon_actions | relic_actions | system
         relic.addHandler(action_handler)
         relic.setLevel(logging.INFO)
+        system.addHandler(action_handler)
+        system.setLevel(logging.INFO)
 
     if not errors.handlers:
         error_handler = RotatingFileHandler(
@@ -47,7 +55,7 @@ def setup_logging() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
         errors.addHandler(error_handler)
         errors.setLevel(logging.ERROR)
 
-    return action, errors, relic
+    return action, errors, relic, system
 
 
-action_logger, error_logger, relic_logger = setup_logging()
+action_logger, error_logger, relic_logger, system_logger = setup_logging()

@@ -10,7 +10,7 @@ import discord
 
 import config
 from services import database as db
-from utils.logging_setup import error_logger, relic_logger
+from utils.logging_setup import error_logger, relic_logger, system_logger
 
 if TYPE_CHECKING:
     from bot import BeaconBot
@@ -69,7 +69,8 @@ class RelicTimer:
         action_word = "restarted" if restarted else "started"
         user_prefix = f"{user_info} | " if user_info else ""
         channel_name = getattr(channel, "name", str(self.channel_id))
-        relic_logger.info(
+        log = relic_logger if user_info else system_logger
+        log.info(
             f"{user_prefix}Relic timer {action_word} in channel {channel_name} "
             f"(ID: {self.channel_id}) for {minutes} minutes "
             f"(event_id={event_id})"
@@ -83,7 +84,7 @@ class RelicTimer:
 
         existing = self.tasks.get(self.channel_id)
         if existing is not None and not existing.done():
-            relic_logger.debug(
+            system_logger.debug(
                 f"Relic timer already running for channel {self.channel_id}; "
                 "skip restore"
             )
@@ -100,7 +101,7 @@ class RelicTimer:
 
         if now >= appear_at:
             db.finish_relic_event(int(row["id"]), "completed")
-            relic_logger.info(
+            system_logger.info(
                 f"Relic event {row['id']} already expired on restore; marked completed"
             )
             return False
@@ -117,7 +118,7 @@ class RelicTimer:
         self.tasks[self.channel_id] = task
 
         remaining = (appear_at - now).total_seconds()
-        relic_logger.info(
+        system_logger.info(
             f"Relic timer restored from DB (event_id={self._event_id}), "
             f"remaining ~{int(remaining)}s, warning_sent={self._warning_sent}"
         )
@@ -193,7 +194,7 @@ class RelicTimer:
 
                 db.set_relic_warning_sent(event_id)
                 self._warning_sent = True
-                relic_logger.info(
+                system_logger.info(
                     f"Relic warning sent to channel ID {self.channel_id} "
                     f"(event_id={event_id})"
                 )
@@ -208,7 +209,7 @@ class RelicTimer:
             self.timer_duration = None
             self._event_id = None
             self._warning_sent = False
-            relic_logger.info(
+            system_logger.info(
                 f"Relic timer completed for channel ID: {self.channel_id} "
                 f"(event_id={event_id})"
             )
@@ -220,7 +221,7 @@ class RelicTimer:
                 self.timer_duration = None
                 self._event_id = None
                 self._warning_sent = False
-            relic_logger.debug(
+            system_logger.debug(
                 f"Relic timer task cancelled internally "
                 f"(channel_id={self.channel_id}, event_id={event_id})"
             )
@@ -248,7 +249,8 @@ class RelicTimer:
         cancelled = had_task or had_db
         if cancelled and log:
             user_prefix = f"{user_info} | " if user_info else ""
-            relic_logger.info(
+            log = relic_logger if user_info else system_logger
+            log.info(
                 f"{user_prefix}Relic timer cancelled "
                 f"(channel_id={self.channel_id})"
             )

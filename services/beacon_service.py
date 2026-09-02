@@ -11,7 +11,7 @@ from discord.ext import tasks
 import config
 from services import database as db
 from utils.embeds import progress_bar, status_emoji
-from utils.logging_setup import action_logger, error_logger
+from utils.logging_setup import error_logger, system_logger
 
 if TYPE_CHECKING:
     from bot import BeaconBot
@@ -97,7 +97,7 @@ def _apply_decay_to_beacon(beacon: Any, now: str) -> tuple[float, float]:
     )
 
     if current_fuel - new_fuel > 1.5 or current_lifetime - new_lifetime > 5:
-        action_logger.debug(
+        system_logger.debug(
             f"Auto-update beacon {beacon['beacon_id']}: "
             f"Hours passed: {hours_passed:.2f}, "
             f"Fuel: {current_fuel:.1f}→{new_fuel:.1f}, "
@@ -105,7 +105,7 @@ def _apply_decay_to_beacon(beacon: Any, now: str) -> tuple[float, float]:
         )
 
     if new_fuel <= 0 or current_fuel <= 0:
-        action_logger.debug(
+        system_logger.debug(
             f"Accelerated decay for beacon {beacon['beacon_id']}: "
             f"no fuel, losing {config.ACCELERATED_DECAY_RATE:.0f}%/hour"
         )
@@ -136,7 +136,7 @@ async def _check_beacon_alerts(
         )
         if channel:
             await channel.send(f"🗑️ Маяк {beacon_id} удалён: {reason}")
-        action_logger.info(f"Auto-deleted beacon {beacon_id}: {reason}")
+        system_logger.info(f"Auto-deleted beacon {beacon_id}: {reason}")
         db.delete_beacon(beacon_id)
         return
 
@@ -185,7 +185,7 @@ async def _check_beacon_alerts(
                 message_link=beacon["message_link"],
             )
             await channel.send(embed=embed)
-        action_logger.info(f"Beacon {beacon_id} recovered to normal status")
+        system_logger.info(f"Beacon {beacon_id} recovered to normal status")
 
 
 @tasks.loop(minutes=1)
@@ -205,7 +205,7 @@ async def maintain_beacons(bot: BeaconBot) -> None:
             await _check_beacon_alerts(bot, beacon, fuel, lifetime, channel)
 
         if updated_count > 0:
-            action_logger.debug(
+            system_logger.debug(
                 f"Beacon maintenance completed for {updated_count} beacons"
             )
     except Exception as exc:

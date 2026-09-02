@@ -7,7 +7,7 @@ import sys
 import config
 from bot import BeaconBot
 from services.database import init_db
-from utils.logging_setup import action_logger, error_logger
+from utils.logging_setup import error_logger, system_logger
 
 
 def main() -> None:
@@ -20,7 +20,7 @@ def main() -> None:
     init_db()
 
     bot = BeaconBot()
-    action_logger.info("Starting BeaconBot...")
+    system_logger.info("Starting BeaconBot...")
     try:
         bot.run(config.TOKEN)
     except Exception:
