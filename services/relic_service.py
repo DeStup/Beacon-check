@@ -75,6 +75,15 @@ class RelicTimer:
         if not self.channel_id:
             return False
 
+        # Уже крутится asyncio-задача — не трогаем (защита от Discord reconnect)
+        existing = self.tasks.get(self.channel_id)
+        if existing is not None and not existing.done():
+            action_logger.debug(
+                f"Relic timer already running for channel {self.channel_id}; "
+                "skip restore"
+            )
+            return False
+
         row = db.get_active_relic_event(self.channel_id)
         if row is None:
             return False
@@ -96,8 +105,8 @@ class RelicTimer:
         self._event_id = int(row["id"])
         self._warning_sent = bool(row["warning_sent"])
 
-        if self.channel_id in self.tasks:
-            self.tasks[self.channel_id].cancel()
+        if existing is not None:
+            existing.cancel()
 
         task = asyncio.create_task(self._run_timer(bot))
         self.tasks[self.channel_id] = task

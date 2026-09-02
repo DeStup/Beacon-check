@@ -97,14 +97,10 @@ class BeaconSelect(Select):
 
         if self.action_type == "refuel":
             await interaction.response.send_modal(RefuelModal(beacon_id))
-        elif self.action_type == "edit":
+            return
+        if self.action_type == "edit":
             await interaction.response.send_modal(EditBeaconModal(beacon_id))
-        elif self.action_type == "delete":
+            return
+        if self.action_type == "delete":
             await interaction.response.send_modal(DeleteBeaconModal(beacon_id))
-
-        embed = discord.Embed(
-            title="✅ Выбор сделан",
-            description=f"Выбран маяк **{beacon_id}**",
-            color=discord.Color.green(),
-        )
-        await interaction.edit_original_response(embed=embed, view=None)
+            return
