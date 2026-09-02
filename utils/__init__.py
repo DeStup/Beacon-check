@@ -1,6 +1,6 @@
 """Вспомогательные утилиты."""
 
-from utils.embeds import create_embed, progress_bar, status_emoji
+from utils.embeds import progress_bar, status_emoji
 from utils.formatting import (
     format_duration_minutes,
     format_priority,
@@ -14,7 +14,6 @@ from utils.permissions import can_clear_beacons
 __all__ = [
     "action_logger",
     "can_clear_beacons",
-    "create_embed",
     "error_logger",
     "format_duration_minutes",
     "format_priority",

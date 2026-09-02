@@ -5,10 +5,9 @@ from __future__ import annotations
 import discord
 from discord.ui import Button, View
 
-from handlers.views.clear import ConfirmClearView
+from handlers.views.clear import prompt_clear_all_beacons
 from handlers.views.select import BeaconSelectView
 from services import database as db
-from utils.permissions import can_clear_beacons
 
 
 async def open_beacon_select(
@@ -21,12 +20,13 @@ async def open_beacon_select(
     color: discord.Color = discord.Color.blue(),
 ) -> None:
     """Общий хелпер: выбор маяка или сообщение об отсутствии."""
-    if db.count_beacons() == 0:
+    beacons = db.list_beacons_summary()
+    if not beacons:
         await interaction.response.send_message(empty_message, ephemeral=True)
         return
 
     embed = discord.Embed(title=title, description=description, color=color)
-    view = BeaconSelectView(action, interaction.user.id)
+    view = BeaconSelectView(action, interaction.user.id, beacons)
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
@@ -161,27 +161,4 @@ class BeaconMenuView(View):
         interaction: discord.Interaction,
         button: Button,
     ) -> None:
-        if not can_clear_beacons(interaction.user):
-            embed = discord.Embed(
-                title="❌ Доступ запрещен",
-                description="У вас нет прав для выполнения этой команды!",
-                color=discord.Color.red(),
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        embed = discord.Embed(
-            title="⚠️ Подтверждение действия",
-            description=(
-                "Вы уверены, что хотите удалить **ВСЕ** маяки?\n"
-                "Это действие нельзя отменить!"
-            ),
-            color=discord.Color.yellow(),
-        )
-        embed.set_footer(text="У вас есть 30 секунд на подтверждение")
-        view = ConfirmClearView(interaction.user, interaction)
-        await interaction.response.send_message(
-            embed=embed,
-            view=view,
-            ephemeral=True,
-        )
+        await prompt_clear_all_beacons(interaction)

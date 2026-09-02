@@ -10,6 +10,58 @@ from discord.ui import Button, View
 from services import database as db
 from utils.formatting import get_user_info
 from utils.logging_setup import action_logger, error_logger
+from utils.permissions import can_clear_beacons
+
+
+def build_clear_confirm_embed() -> discord.Embed:
+    embed = discord.Embed(
+        title="⚠️ Подтверждение действия",
+        description=(
+            "Вы уверены, что хотите удалить **ВСЕ** маяки?\n"
+            "Это действие нельзя отменить!"
+        ),
+        color=discord.Color.yellow(),
+    )
+    embed.set_footer(text="У вас есть 30 секунд на подтверждение")
+    return embed
+
+
+async def prompt_clear_all_beacons(
+    interaction: discord.Interaction,
+    *,
+    yes_label: str = "Да, удалить всё",
+    no_label: str = "Нет, отмена",
+    slash_button_styles: bool = False,
+) -> None:
+    """Запрос подтверждения очистки (slash /beacon clear и кнопка в меню)."""
+    if not can_clear_beacons(interaction.user):
+        embed = discord.Embed(
+            title="❌ Доступ запрещен",
+            description="У вас нет прав для выполнения этой команды!",
+            color=discord.Color.red(),
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    view = ConfirmClearView(
+        interaction.user,
+        interaction,
+        yes_label=yes_label,
+        no_label=no_label,
+    )
+    if slash_button_styles:
+        for child in view.children:
+            if isinstance(child, Button):
+                if child.label == "Да":
+                    child.style = discord.ButtonStyle.green
+                elif child.label == "Нет":
+                    child.style = discord.ButtonStyle.red
+
+    await interaction.response.send_message(
+        embed=build_clear_confirm_embed(),
+        view=view,
+        ephemeral=True,
+    )
 
 
 class ConfirmClearView(View):

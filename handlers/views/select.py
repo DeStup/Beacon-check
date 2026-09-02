@@ -2,24 +2,31 @@
 
 from __future__ import annotations
 
+from typing import Sequence
+
 import discord
 from discord.ui import Select, View
 
 import config
 from handlers.views.modals import DeleteBeaconModal, EditBeaconModal, RefuelModal
 from handlers.views.status import show_all_beacons_status, show_beacon_status
-from services import database as db
+from services.database import Row
 from utils.formatting import priority_emoji
 
 
 class BeaconSelectView(View):
     """View с выпадающим списком маяков."""
 
-    def __init__(self, action_type: str, user_id: int) -> None:
+    def __init__(
+        self,
+        action_type: str,
+        user_id: int,
+        beacons: Sequence[Row],
+    ) -> None:
         super().__init__(timeout=60)
         self.action_type = action_type
         self.user_id = user_id
-        self.add_item(BeaconSelect(action_type))
+        self.add_item(BeaconSelect(action_type, beacons))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user_id:
@@ -34,9 +41,8 @@ class BeaconSelectView(View):
 class BeaconSelect(Select):
     """Select-меню по маякам."""
 
-    def __init__(self, action_type: str) -> None:
+    def __init__(self, action_type: str, beacons: Sequence[Row]) -> None:
         self.action_type = action_type
-        beacons = db.list_beacons_summary()
 
         if not beacons:
             options = [

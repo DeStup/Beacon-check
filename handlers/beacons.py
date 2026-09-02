@@ -9,12 +9,11 @@ import discord
 from discord import app_commands
 
 import config
-from handlers.views.clear import ConfirmClearView
+from handlers.views.clear import prompt_clear_all_beacons
 from handlers.views.menu import BeaconMenuView, open_beacon_select
 from services import database as db
 from utils.formatting import format_priority, get_user_info, rate_from_priority
 from utils.logging_setup import action_logger, error_logger
-from utils.permissions import can_clear_beacons
 
 if TYPE_CHECKING:
     from bot import BeaconBot
@@ -265,42 +264,11 @@ def setup(bot: BeaconBot) -> None:
 
     @beacon.command(name="clear", description="Удалить все маяки")
     async def clear(interaction: discord.Interaction) -> None:
-        if not can_clear_beacons(interaction.user):
-            embed = discord.Embed(
-                title="❌ Доступ запрещен",
-                description="У вас нет прав для выполнения этой команды!",
-                color=discord.Color.red(),
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-
-        embed = discord.Embed(
-            title="⚠️ Подтверждение действия",
-            description=(
-                "Вы уверены, что хотите удалить **ВСЕ** маяки?\n"
-                "Это действие нельзя отменить!"
-            ),
-            color=discord.Color.yellow(),
-        )
-        embed.set_footer(text="У вас есть 30 секунд на подтверждение")
-        view = ConfirmClearView(
-            interaction.user,
+        await prompt_clear_all_beacons(
             interaction,
             yes_label="Да",
             no_label="Нет",
-        )
-        # Для /beacon clear стиль кнопок как в оригинале: зелёная Да / красная Нет
-        for child in view.children:
-            if isinstance(child, discord.ui.Button):
-                if child.label == "Да":
-                    child.style = discord.ButtonStyle.green
-                elif child.label == "Нет":
-                    child.style = discord.ButtonStyle.red
-
-        await interaction.response.send_message(
-            embed=embed,
-            view=view,
-            ephemeral=True,
+            slash_button_styles=True,
         )
 
     bot.tree.add_command(beacon)

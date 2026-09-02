@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 import discord
@@ -11,8 +10,17 @@ from discord.ui import Button, Modal, TextInput, View
 
 import config
 from utils.autocomplete import get_minute_options
-from utils.formatting import format_duration_minutes, get_user_info
-from utils.logging_setup import action_logger, error_logger
+from utils.formatting import get_user_info
+from utils.logging_setup import action_logger
+from utils.relic_embeds import (
+    build_relic_active_status_embed,
+    build_relic_already_running_embed,
+    build_relic_cancelled_embed,
+    build_relic_inactive_embed,
+    build_relic_restarted_embed,
+    build_relic_started_embed,
+    ensure_relic_channel,
+)
 
 if TYPE_CHECKING:
     from bot import BeaconBot
@@ -41,29 +49,13 @@ def setup(bot: BeaconBot) -> None:
         user_info = get_user_info(interaction)
         timer = bot.relic_timer
 
-        if config.RELIC_CHANNEL_ID == 0:
-            await interaction.response.send_message(
-                "❌ Канал для реликвий не настроен! "
-                "Добавьте RELIC_CHANNEL_ID в .env файл.",
-                ephemeral=True,
-            )
-            error_logger.error(
-                f"{user_info} tried to use /relic start but RELIC_CHANNEL_ID "
-                "is not configured"
-            )
-            return
-
-        relic_channel = bot.get_channel(config.RELIC_CHANNEL_ID)
-        if not relic_channel:
-            await interaction.response.send_message(
-                f"❌ Канал с ID {config.RELIC_CHANNEL_ID} не найден! "
-                "Проверьте настройки.",
-                ephemeral=True,
-            )
-            error_logger.error(
-                f"{user_info} tried to use /relic start but channel "
-                f"{config.RELIC_CHANNEL_ID} not found"
-            )
+        relic_channel = await ensure_relic_channel(
+            interaction,
+            bot,
+            user_info=user_info,
+            log_context="/relic start",
+        )
+        if relic_channel is None:
             return
 
         if minutes is not None:
@@ -130,10 +122,7 @@ def setup(bot: BeaconBot) -> None:
                         )
                         return
 
-                    await _restart_timer(
-                        modal_interaction,
-                        new_minutes=new_minutes,
-                    )
+                    await _restart_timer(modal_interaction, new_minutes=new_minutes)
 
             class TimerManageView(View):
                 def __init__(self) -> None:
@@ -175,14 +164,8 @@ def setup(bot: BeaconBot) -> None:
                         return
 
                     if timer.cancel_timer():
-                        embed = discord.Embed(
-                            title="⏹️ Таймер отменен",
-                            description="Таймер появления реликвии был отменен.",
-                            color=discord.Color.red(),
-                            timestamp=datetime.now(),
-                        )
                         await btn_interaction.response.edit_message(
-                            embed=embed,
+                            embed=build_relic_cancelled_embed(),
                             view=None,
                         )
                         action_logger.info(
@@ -202,38 +185,8 @@ def setup(bot: BeaconBot) -> None:
             ) -> None:
                 timer.cancel_timer()
                 await timer.start_timer(bot, new_minutes)
-                time_str = format_duration_minutes(new_minutes)
-                unix_timestamp = int(
-                    (datetime.now() + timedelta(minutes=new_minutes)).timestamp()
-                )
-                embed = discord.Embed(
-                    title="🔄 Таймер перезапущен",
-                    description=(
-                        f"Таймер появления реликвии перезапущен на **{time_str}**"
-                    ),
-                    color=discord.Color.blue(),
-                    timestamp=datetime.now(),
-                )
-                embed.add_field(
-                    name="⏰ Время появления",
-                    value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
-                    inline=True,
-                )
-                embed.add_field(
-                    name="📢 Уведомление",
-                    value=(
-                        "За 10 минут до появления будет отправлено предупреждение"
-                    ),
-                    inline=False,
-                )
-                embed.add_field(
-                    name="📌 Канал",
-                    value=relic_channel.mention,
-                    inline=False,
-                )
-                # Modal submit редактирует исходное сообщение с кнопками
                 await ui_interaction.response.edit_message(
-                    embed=embed,
+                    embed=build_relic_restarted_embed(relic_channel, new_minutes),
                     view=None,
                 )
                 action_logger.info(
@@ -241,24 +194,8 @@ def setup(bot: BeaconBot) -> None:
                     f"for {new_minutes} minutes"
                 )
 
-            embed = discord.Embed(
-                title="⏳ Таймер уже запущен",
-                description=(
-                    f"В канале {relic_channel.mention} уже запущен "
-                    "таймер появления реликвии."
-                ),
-                color=discord.Color.orange(),
-            )
-            embed.add_field(
-                name="🔄 Что делать?",
-                value=(
-                    "Отмените текущий таймер или нажмите **Перезапустить** "
-                    "и введите нужное число минут."
-                ),
-                inline=False,
-            )
             await interaction.response.send_message(
-                embed=embed,
+                embed=build_relic_already_running_embed(relic_channel),
                 view=TimerManageView(),
                 ephemeral=True,
             )
@@ -268,34 +205,11 @@ def setup(bot: BeaconBot) -> None:
             minutes = config.DEFAULT_RELIC_MINUTES
 
         await timer.start_timer(bot, minutes)
-        time_str = format_duration_minutes(minutes)
-        unix_timestamp = int(
-            (datetime.now() + timedelta(minutes=minutes)).timestamp()
+        embed = build_relic_started_embed(
+            relic_channel,
+            minutes,
+            started_by=interaction.user.name,
         )
-
-        embed = discord.Embed(
-            title="⏳ Таймер реликвии запущен",
-            description=f"Реликвия появится через **{time_str}**",
-            color=discord.Color.gold(),
-            timestamp=datetime.now(),
-        )
-        embed.add_field(
-            name="📢 Уведомление",
-            value="За 10 минут до появления будет отправлено предупреждение",
-            inline=False,
-        )
-        embed.add_field(
-            name="⏰ Время появления",
-            value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
-            inline=True,
-        )
-        embed.add_field(
-            name="📌 Канал",
-            value=relic_channel.mention,
-            inline=True,
-        )
-        embed.add_field(name="📊 Статус", value="🟢 Активен", inline=True)
-        embed.set_footer(text=f"Запустил: {interaction.user.name}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @relic.command(
@@ -312,11 +226,8 @@ def setup(bot: BeaconBot) -> None:
             return
 
         if bot.relic_timer.cancel_timer():
-            embed = discord.Embed(
-                title="⏹️ Таймер отменен",
-                description="Таймер появления реликвии был успешно отменен.",
-                color=discord.Color.red(),
-                timestamp=datetime.now(),
+            embed = build_relic_cancelled_embed(
+                "Таймер появления реликвии был успешно отменен."
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
             action_logger.info(f"{user_info} cancelled relic timer")
@@ -331,69 +242,20 @@ def setup(bot: BeaconBot) -> None:
         description="Показать статус таймера реликвии",
     )
     async def status(interaction: discord.Interaction) -> None:
-        if config.RELIC_CHANNEL_ID == 0:
-            await interaction.response.send_message(
-                "❌ Канал для реликвий не настроен!",
-                ephemeral=True,
-            )
-            return
-
-        relic_channel = bot.get_channel(config.RELIC_CHANNEL_ID)
-        if not relic_channel:
-            await interaction.response.send_message(
-                f"❌ Канал с ID {config.RELIC_CHANNEL_ID} не найден!",
-                ephemeral=True,
-            )
+        relic_channel = await ensure_relic_channel(
+            interaction,
+            bot,
+            user_info=get_user_info(interaction),
+            log_context="/relic status",
+        )
+        if relic_channel is None:
             return
 
         timer = bot.relic_timer
         if timer.is_active():
-            embed = discord.Embed(
-                title="⏳ Таймер реликвии активен",
-                description=(
-                    f"В канале {relic_channel.mention} запущен "
-                    "таймер появления реликвии."
-                ),
-                color=discord.Color.green(),
-                timestamp=datetime.now(),
-            )
-            embed.add_field(
-                name="⏱️ Оставшееся время",
-                value=f"**{timer.get_remaining_time_formatted()}**",
-                inline=False,
-            )
-            embed.add_field(
-                name="📢 Уведомление",
-                value="За 10 минут до появления будет отправлено предупреждение",
-                inline=True,
-            )
-            embed.add_field(
-                name="📌 Канал",
-                value=relic_channel.mention,
-                inline=True,
-            )
-            if timer.timer_start_time and timer.timer_duration:
-                appear_time = timer.timer_start_time + timedelta(
-                    minutes=timer.timer_duration
-                )
-                unix_timestamp = int(appear_time.timestamp())
-                embed.add_field(
-                    name="⏰ Примерное время появления",
-                    value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
-                    inline=False,
-                )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            embed = build_relic_active_status_embed(relic_channel, timer)
         else:
-            embed = discord.Embed(
-                title="❌ Таймер не активен",
-                description="Нет запущенного таймера реликвии.",
-                color=discord.Color.red(),
-            )
-            embed.add_field(
-                name="💡 Запустить таймер",
-                value="Используйте команду `/relic start` для запуска таймера",
-                inline=False,
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            embed = build_relic_inactive_embed()
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
     bot.tree.add_command(relic)

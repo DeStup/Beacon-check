@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Optional, Sequence
-
-import discord
-
 import config
 
 
@@ -31,33 +26,3 @@ def status_emoji(
     if percent <= threshold_warning:
         return "⚠️"
     return "✅"
-
-
-def create_embed(
-    title: str,
-    description: str,
-    color: discord.Color,
-    fields: Optional[Sequence[tuple[str, str, bool]]] = None,
-    footer: Optional[str] = None,
-    timestamp: bool = True,
-    link: Optional[str] = None,
-) -> discord.Embed:
-    """Стандартизированный embed."""
-    embed = discord.Embed(
-        title=title,
-        description=description,
-        color=color,
-        timestamp=datetime.now() if timestamp else None,
-    )
-
-    if fields:
-        for name, value, inline in fields:
-            embed.add_field(name=name, value=value, inline=inline)
-
-    if link:
-        embed.add_field(name="", value=f"🔗 [Перейти]({link})", inline=False)
-
-    if footer:
-        embed.add_field(name="", value=footer, inline=False)
-
-    return embed

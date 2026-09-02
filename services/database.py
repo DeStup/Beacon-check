@@ -79,20 +79,6 @@ def init_db() -> None:
         )
 
 
-def count_beacons() -> int:
-    with get_connection() as conn:
-        row = conn.execute("SELECT COUNT(*) AS count FROM beacons").fetchone()
-        return int(row["count"])
-
-
-def list_beacon_ids() -> list[str]:
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT beacon_id FROM beacons ORDER BY beacon_id"
-        ).fetchall()
-        return [row["beacon_id"] for row in rows]
-
-
 def list_beacons_summary() -> list[Row]:
     with get_connection() as conn:
         return list(
@@ -131,48 +117,26 @@ def insert_beacon(
     fuel_consumption_rate: float,
     message_link: str,
     username: str,
-    image_url: Optional[str] = None,
 ) -> None:
     with get_connection() as conn:
-        if image_url is not None:
-            conn.execute(
-                """
-                INSERT INTO beacons (
-                    beacon_id, current_fuel, current_lifetime, fuel_consumption_rate,
-                    last_updated, low_status_sent, message_link, username, image_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    beacon_id,
-                    current_fuel,
-                    current_lifetime,
-                    fuel_consumption_rate,
-                    datetime.now().isoformat(),
-                    False,
-                    message_link,
-                    username,
-                    image_url,
-                ),
-            )
-        else:
-            conn.execute(
-                """
-                INSERT INTO beacons (
-                    beacon_id, current_fuel, current_lifetime, fuel_consumption_rate,
-                    last_updated, low_status_sent, message_link, username
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    beacon_id,
-                    current_fuel,
-                    current_lifetime,
-                    fuel_consumption_rate,
-                    datetime.now().isoformat(),
-                    False,
-                    message_link,
-                    username,
-                ),
-            )
+        conn.execute(
+            """
+            INSERT INTO beacons (
+                beacon_id, current_fuel, current_lifetime, fuel_consumption_rate,
+                last_updated, low_status_sent, message_link, username
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                beacon_id,
+                current_fuel,
+                current_lifetime,
+                fuel_consumption_rate,
+                datetime.now().isoformat(),
+                False,
+                message_link,
+                username,
+            ),
+        )
 
 
 def delete_beacon(beacon_id: str) -> bool:
