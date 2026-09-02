@@ -19,8 +19,13 @@ if TYPE_CHECKING:
 
 
 def setup(bot: BeaconBot) -> None:
-    @bot.tree.command(
+    relic = app_commands.Group(
         name="relic",
+        description="Таймер появления реликвии",
+    )
+
+    @relic.command(
+        name="start",
         description=(
             "Запустить таймер до появления реликвии (по умолчанию 90 минут)"
         ),
@@ -29,7 +34,7 @@ def setup(bot: BeaconBot) -> None:
         minutes="Время до появления реликвии в минутах (по умолчанию 90)"
     )
     @app_commands.autocomplete(minutes=get_minute_options)
-    async def relic(
+    async def start(
         interaction: discord.Interaction,
         minutes: Optional[int] = None,
     ) -> None:
@@ -43,7 +48,7 @@ def setup(bot: BeaconBot) -> None:
                 ephemeral=True,
             )
             error_logger.error(
-                f"{user_info} tried to use /relic but RELIC_CHANNEL_ID "
+                f"{user_info} tried to use /relic start but RELIC_CHANNEL_ID "
                 "is not configured"
             )
             return
@@ -56,7 +61,7 @@ def setup(bot: BeaconBot) -> None:
                 ephemeral=True,
             )
             error_logger.error(
-                f"{user_info} tried to use /relic but channel "
+                f"{user_info} tried to use /relic start but channel "
                 f"{config.RELIC_CHANNEL_ID} not found"
             )
             return
@@ -231,11 +236,11 @@ def setup(bot: BeaconBot) -> None:
         embed.set_footer(text=f"Запустил: {interaction.user.name}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    @bot.tree.command(
-        name="relic_cancel",
+    @relic.command(
+        name="cancel",
         description="Отменить запущенный таймер реликвии",
     )
-    async def relic_cancel(interaction: discord.Interaction) -> None:
+    async def cancel(interaction: discord.Interaction) -> None:
         user_info = get_user_info(interaction)
         if config.RELIC_CHANNEL_ID == 0:
             await interaction.response.send_message(
@@ -259,11 +264,11 @@ def setup(bot: BeaconBot) -> None:
                 ephemeral=True,
             )
 
-    @bot.tree.command(
-        name="relic_status",
+    @relic.command(
+        name="status",
         description="Показать статус таймера реликвии",
     )
-    async def relic_status(interaction: discord.Interaction) -> None:
+    async def status(interaction: discord.Interaction) -> None:
         if config.RELIC_CHANNEL_ID == 0:
             await interaction.response.send_message(
                 "❌ Канал для реликвий не настроен!",
@@ -324,7 +329,9 @@ def setup(bot: BeaconBot) -> None:
             )
             embed.add_field(
                 name="💡 Запустить таймер",
-                value="Используйте команду `/relic` для запуска таймера",
+                value="Используйте команду `/relic start` для запуска таймера",
                 inline=False,
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    bot.tree.add_command(relic)

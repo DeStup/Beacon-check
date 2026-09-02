@@ -81,7 +81,7 @@ class BeaconSelect(Select):
     async def callback(self, interaction: discord.Interaction) -> None:
         if self.values[0] == "none":
             await interaction.response.send_message(
-                "❌ Нет активных маяков. Сначала добавьте маяк через `/add`",
+                "❌ Нет активных маяков. Сначала добавьте маяк через `/beacon add`",
                 ephemeral=True,
             )
             return

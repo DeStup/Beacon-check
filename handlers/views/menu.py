@@ -48,7 +48,7 @@ class BeaconMenuView(View):
         button: Button,
     ) -> None:
         await interaction.response.send_message(
-            "Используйте команду `/add` для добавления маяка:\n",
+            "Используйте команду `/beacon add` для добавления маяка:\n",
             ephemeral=True,
         )
 

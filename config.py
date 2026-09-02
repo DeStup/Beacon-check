@@ -40,7 +40,7 @@ DEFAULT_RELIC_MINUTES: int = 90
 MAX_RELIC_MINUTES: int = 1440
 RELIC_WARNING_MINUTES: int = 10
 
-# Пользователи с правом /clear вне админ-прав гильдии
+# Пользователи с правом /beacon clear вне админ-прав гильдии
 CLEAR_ALLOWED_USER_IDS: frozenset[int] = frozenset({226751097295994881})
 
 LOG_MAX_BYTES: int = 10 * 1024 * 1024

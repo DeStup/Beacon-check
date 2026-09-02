@@ -21,7 +21,12 @@ if TYPE_CHECKING:
 
 
 def setup(bot: BeaconBot) -> None:
-    @bot.tree.command(name="add", description="Добавить новый маяк")
+    beacon = app_commands.Group(
+        name="beacon",
+        description="Управление маяками",
+    )
+
+    @beacon.command(name="add", description="Добавить новый маяк")
     @app_commands.describe(
         beacon_id="ID маяка (например: NG-01)",
         priority="Приоритет маяка (1 - высокий, 2 - средний, 3 - низкий)",
@@ -189,7 +194,7 @@ def setup(bot: BeaconBot) -> None:
                 ephemeral=True,
             )
 
-    @bot.tree.command(name="menu", description="Показать меню управления маяками")
+    @beacon.command(name="menu", description="Показать меню управления маяками")
     async def menu(interaction: discord.Interaction) -> None:
         embed = discord.Embed(
             title="🚀 Управление маяками",
@@ -214,7 +219,7 @@ def setup(bot: BeaconBot) -> None:
             ephemeral=True,
         )
 
-    @bot.tree.command(name="refuel", description="Пополнить топливо маяка")
+    @beacon.command(name="refuel", description="Пополнить топливо маяка")
     async def refuel(interaction: discord.Interaction) -> None:
         await open_beacon_select(
             interaction,
@@ -224,7 +229,7 @@ def setup(bot: BeaconBot) -> None:
             empty_message="❌ Нет активных маяков для заправки!",
         )
 
-    @bot.tree.command(name="status", description="Показать статус маяка")
+    @beacon.command(name="status", description="Показать статус маяка")
     async def status(interaction: discord.Interaction) -> None:
         await open_beacon_select(
             interaction,
@@ -237,7 +242,7 @@ def setup(bot: BeaconBot) -> None:
             empty_message="📭 Нет активных маяков",
         )
 
-    @bot.tree.command(name="edit", description="Редактировать данные маяка")
+    @beacon.command(name="edit", description="Редактировать данные маяка")
     async def edit(interaction: discord.Interaction) -> None:
         await open_beacon_select(
             interaction,
@@ -247,7 +252,7 @@ def setup(bot: BeaconBot) -> None:
             empty_message="❌ Нет активных маяков для редактирования!",
         )
 
-    @bot.tree.command(name="delete", description="Удалить маяк")
+    @beacon.command(name="delete", description="Удалить маяк")
     async def delete(interaction: discord.Interaction) -> None:
         await open_beacon_select(
             interaction,
@@ -258,7 +263,7 @@ def setup(bot: BeaconBot) -> None:
             color=discord.Color.red(),
         )
 
-    @bot.tree.command(name="clear", description="Удалить все маяки")
+    @beacon.command(name="clear", description="Удалить все маяки")
     async def clear(interaction: discord.Interaction) -> None:
         if not can_clear_beacons(interaction.user):
             embed = discord.Embed(
@@ -284,7 +289,7 @@ def setup(bot: BeaconBot) -> None:
             yes_label="Да",
             no_label="Нет",
         )
-        # Для /clear стиль кнопок как в оригинале: зелёная Да / красная Нет
+        # Для /beacon clear стиль кнопок как в оригинале: зелёная Да / красная Нет
         for child in view.children:
             if isinstance(child, discord.ui.Button):
                 if child.label == "Да":
@@ -297,6 +302,8 @@ def setup(bot: BeaconBot) -> None:
             view=view,
             ephemeral=True,
         )
+
+    bot.tree.add_command(beacon)
 
     @bot.tree.command(name="ping", description="Проверка, что бот жив")
     async def ping(interaction: discord.Interaction) -> None:
