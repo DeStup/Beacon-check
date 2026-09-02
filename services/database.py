@@ -58,6 +58,25 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS relic_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id INTEGER NOT NULL,
+                started_at TEXT NOT NULL,
+                duration_minutes INTEGER NOT NULL,
+                warning_sent INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active',
+                ended_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_relic_events_active
+            ON relic_events (channel_id, status)
+            """
+        )
 
 
 def count_beacons() -> int:
@@ -319,3 +338,88 @@ def set_low_status(beacon_id: str, sent: bool) -> None:
             """,
             (sent, datetime.now().isoformat(), beacon_id),
         )
+
+
+# --- relic_events ---
+
+
+def get_active_relic_event(channel_id: int) -> Optional[Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            """
+            SELECT * FROM relic_events
+            WHERE channel_id = ? AND status = 'active'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (channel_id,),
+        ).fetchone()
+
+
+def create_relic_event(
+    *,
+    channel_id: int,
+    started_at: datetime,
+    duration_minutes: int,
+) -> int:
+    """Создаёт активное событие; предыдущие active для канала закрывает как cancelled."""
+    with get_connection() as conn:
+        now = datetime.now().isoformat()
+        conn.execute(
+            """
+            UPDATE relic_events
+            SET status = 'cancelled', ended_at = ?
+            WHERE channel_id = ? AND status = 'active'
+            """,
+            (now, channel_id),
+        )
+        cursor = conn.execute(
+            """
+            INSERT INTO relic_events (
+                channel_id, started_at, duration_minutes, warning_sent, status
+            ) VALUES (?, ?, ?, 0, 'active')
+            """,
+            (channel_id, started_at.isoformat(), duration_minutes),
+        )
+        return int(cursor.lastrowid)
+
+
+def set_relic_warning_sent(event_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE relic_events
+            SET warning_sent = 1
+            WHERE id = ? AND status = 'active'
+            """,
+            (event_id,),
+        )
+
+
+def finish_relic_event(event_id: int, status: str) -> None:
+    """status: completed | cancelled."""
+    if status not in {"completed", "cancelled"}:
+        raise ValueError(f"Invalid relic status: {status}")
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE relic_events
+            SET status = ?, ended_at = ?
+            WHERE id = ? AND status = 'active'
+            """,
+            (status, datetime.now().isoformat(), event_id),
+        )
+
+
+def cancel_active_relic_event(channel_id: int) -> bool:
+    """Отменяет активное событие канала. True если было что отменять."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE relic_events
+            SET status = 'cancelled', ended_at = ?
+            WHERE channel_id = ? AND status = 'active'
+            """,
+            (datetime.now().isoformat(), channel_id),
+        )
+        return cursor.rowcount > 0
