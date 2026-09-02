@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional
 
 import discord
 from discord import app_commands
-from discord.ui import Button, View
+from discord.ui import Button, Modal, TextInput, View
 
 import config
 from utils.autocomplete import get_minute_options
@@ -66,26 +66,96 @@ def setup(bot: BeaconBot) -> None:
             )
             return
 
-        if minutes is None:
-            minutes = config.DEFAULT_RELIC_MINUTES
-        elif minutes < 1:
-            await interaction.response.send_message(
-                "❌ Время должно быть больше 0 минут!",
-                ephemeral=True,
-            )
-            return
-        elif minutes > config.MAX_RELIC_MINUTES:
-            await interaction.response.send_message(
-                f"❌ Время не должно превышать {config.MAX_RELIC_MINUTES} минут "
-                "(24 часа)!",
-                ephemeral=True,
-            )
-            return
+        if minutes is not None:
+            if minutes < 1:
+                await interaction.response.send_message(
+                    "❌ Время должно быть больше 0 минут!",
+                    ephemeral=True,
+                )
+                return
+            if minutes > config.MAX_RELIC_MINUTES:
+                await interaction.response.send_message(
+                    f"❌ Время не должно превышать {config.MAX_RELIC_MINUTES} минут "
+                    "(24 часа)!",
+                    ephemeral=True,
+                )
+                return
 
         if timer.is_active():
+            class RestartMinutesModal(Modal, title="🔄 Перезапуск таймера"):
+                minutes_input = TextInput(
+                    label="Минуты до появления реликвии",
+                    placeholder=f"1–{config.MAX_RELIC_MINUTES}, например 90",
+                    required=True,
+                    min_length=1,
+                    max_length=4,
+                    default=(
+                        str(minutes)
+                        if minutes is not None
+                        else str(config.DEFAULT_RELIC_MINUTES)
+                    ),
+                )
+
+                async def on_submit(
+                    self, modal_interaction: discord.Interaction
+                ) -> None:
+                    if modal_interaction.user.id != interaction.user.id:
+                        await modal_interaction.response.send_message(
+                            "❌ Вы не можете управлять этим таймером!",
+                            ephemeral=True,
+                        )
+                        return
+
+                    raw = self.minutes_input.value.strip()
+                    try:
+                        new_minutes = int(raw)
+                    except ValueError:
+                        await modal_interaction.response.send_message(
+                            "❌ Введите целое число минут!",
+                            ephemeral=True,
+                        )
+                        return
+
+                    if new_minutes < 1:
+                        await modal_interaction.response.send_message(
+                            "❌ Время должно быть больше 0 минут!",
+                            ephemeral=True,
+                        )
+                        return
+                    if new_minutes > config.MAX_RELIC_MINUTES:
+                        await modal_interaction.response.send_message(
+                            f"❌ Время не должно превышать "
+                            f"{config.MAX_RELIC_MINUTES} минут (24 часа)!",
+                            ephemeral=True,
+                        )
+                        return
+
+                    await _restart_timer(
+                        modal_interaction,
+                        new_minutes=new_minutes,
+                    )
+
             class TimerManageView(View):
                 def __init__(self) -> None:
-                    super().__init__(timeout=30)
+                    super().__init__(timeout=60)
+
+                @discord.ui.button(
+                    label="Перезапустить",
+                    style=discord.ButtonStyle.primary,
+                    emoji="🔄",
+                )
+                async def restart_timer_button(
+                    self,
+                    btn_interaction: discord.Interaction,
+                    button: Button,
+                ) -> None:
+                    if btn_interaction.user.id != interaction.user.id:
+                        await btn_interaction.response.send_message(
+                            "❌ Вы не можете управлять этим таймером!",
+                            ephemeral=True,
+                        )
+                        return
+                    await btn_interaction.response.send_modal(RestartMinutesModal())
 
                 @discord.ui.button(
                     label="Отменить таймер",
@@ -121,66 +191,55 @@ def setup(bot: BeaconBot) -> None:
                     else:
                         await btn_interaction.response.edit_message(
                             content="❌ Таймер не найден или уже завершен.",
+                            embed=None,
                             view=None,
                         )
 
-                @discord.ui.button(
-                    label="Перезапустить",
-                    style=discord.ButtonStyle.primary,
-                    emoji="🔄",
+            async def _restart_timer(
+                ui_interaction: discord.Interaction,
+                *,
+                new_minutes: int,
+            ) -> None:
+                timer.cancel_timer()
+                await timer.start_timer(bot, new_minutes)
+                time_str = format_duration_minutes(new_minutes)
+                unix_timestamp = int(
+                    (datetime.now() + timedelta(minutes=new_minutes)).timestamp()
                 )
-                async def restart_timer_button(
-                    self,
-                    btn_interaction: discord.Interaction,
-                    button: Button,
-                ) -> None:
-                    if btn_interaction.user.id != interaction.user.id:
-                        await btn_interaction.response.send_message(
-                            "❌ Вы не можете управлять этим таймером!",
-                            ephemeral=True,
-                        )
-                        return
-
-                    timer.cancel_timer()
-                    await timer.start_timer(bot, minutes)
-                    time_str = format_duration_minutes(minutes)
-                    unix_timestamp = int(
-                        (datetime.now() + timedelta(minutes=minutes)).timestamp()
-                    )
-
-                    embed = discord.Embed(
-                        title="🔄 Таймер перезапущен",
-                        description=(
-                            f"Таймер появления реликвии перезапущен на **{time_str}**"
-                        ),
-                        color=discord.Color.blue(),
-                        timestamp=datetime.now(),
-                    )
-                    embed.add_field(
-                        name="⏰ Время появления",
-                        value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
-                        inline=True,
-                    )
-                    embed.add_field(
-                        name="📢 Уведомление",
-                        value=(
-                            "За 10 минут до появления будет отправлено предупреждение"
-                        ),
-                        inline=False,
-                    )
-                    embed.add_field(
-                        name="📌 Канал",
-                        value=relic_channel.mention,
-                        inline=False,
-                    )
-                    await btn_interaction.response.edit_message(
-                        embed=embed,
-                        view=None,
-                    )
-                    action_logger.info(
-                        f"{get_user_info(btn_interaction)} restarted relic timer "
-                        f"for {minutes} minutes"
-                    )
+                embed = discord.Embed(
+                    title="🔄 Таймер перезапущен",
+                    description=(
+                        f"Таймер появления реликвии перезапущен на **{time_str}**"
+                    ),
+                    color=discord.Color.blue(),
+                    timestamp=datetime.now(),
+                )
+                embed.add_field(
+                    name="⏰ Время появления",
+                    value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
+                    inline=True,
+                )
+                embed.add_field(
+                    name="📢 Уведомление",
+                    value=(
+                        "За 10 минут до появления будет отправлено предупреждение"
+                    ),
+                    inline=False,
+                )
+                embed.add_field(
+                    name="📌 Канал",
+                    value=relic_channel.mention,
+                    inline=False,
+                )
+                # Modal submit редактирует исходное сообщение с кнопками
+                await ui_interaction.response.edit_message(
+                    embed=embed,
+                    view=None,
+                )
+                action_logger.info(
+                    f"{get_user_info(ui_interaction)} restarted relic timer "
+                    f"for {new_minutes} minutes"
+                )
 
             embed = discord.Embed(
                 title="⏳ Таймер уже запущен",
@@ -193,8 +252,8 @@ def setup(bot: BeaconBot) -> None:
             embed.add_field(
                 name="🔄 Что делать?",
                 value=(
-                    "Вы можете отменить текущий таймер или перезапустить "
-                    "его с новым временем."
+                    "Отмените текущий таймер или нажмите **Перезапустить** "
+                    "и введите нужное число минут."
                 ),
                 inline=False,
             )
@@ -204,6 +263,9 @@ def setup(bot: BeaconBot) -> None:
                 ephemeral=True,
             )
             return
+
+        if minutes is None:
+            minutes = config.DEFAULT_RELIC_MINUTES
 
         await timer.start_timer(bot, minutes)
         time_str = format_duration_minutes(minutes)
