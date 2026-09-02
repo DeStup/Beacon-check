@@ -219,3 +219,15 @@ def start_background_tasks(bot: BeaconBot) -> None:
     """Запускает фоновый цикл маяков (идемпотентно)."""
     if not maintain_beacons.is_running():
         maintain_beacons.start(bot)
+
+
+def apply_decay_to_all_beacons() -> int:
+    """Ручной пересчёт decay для всех маяков. Возвращает число обновлённых."""
+    beacons = db.fetch_all_for_update()
+    now = datetime.now().isoformat()
+    updated_count = 0
+    for beacon in beacons:
+        if hours_since(beacon["last_updated"]) > 0:
+            _apply_decay_to_beacon(beacon, now)
+            updated_count += 1
+    return updated_count

@@ -10,7 +10,7 @@ import discord
 
 import config
 from services import database as db
-from utils.logging_setup import action_logger, error_logger
+from utils.logging_setup import error_logger, relic_logger
 
 if TYPE_CHECKING:
     from bot import BeaconBot
@@ -31,6 +31,9 @@ class RelicTimer:
         self,
         bot: BeaconBot,
         minutes: int = config.DEFAULT_RELIC_MINUTES,
+        *,
+        user_info: Optional[str] = None,
+        restarted: bool = False,
     ) -> Optional[asyncio.Task[None]]:
         """Запускает таймер; предупреждение за RELIC_WARNING_MINUTES до конца."""
         channel = bot.get_channel(self.channel_id)
@@ -63,8 +66,11 @@ class RelicTimer:
         task = asyncio.create_task(self._run_timer(bot))
         self.tasks[self.channel_id] = task
 
-        action_logger.info(
-            f"Relic timer started in channel {channel.name} "
+        action_word = "restarted" if restarted else "started"
+        user_prefix = f"{user_info} | " if user_info else ""
+        channel_name = getattr(channel, "name", str(self.channel_id))
+        relic_logger.info(
+            f"{user_prefix}Relic timer {action_word} in channel {channel_name} "
             f"(ID: {self.channel_id}) for {minutes} minutes "
             f"(event_id={event_id})"
         )
@@ -75,10 +81,9 @@ class RelicTimer:
         if not self.channel_id:
             return False
 
-        # Уже крутится asyncio-задача — не трогаем (защита от Discord reconnect)
         existing = self.tasks.get(self.channel_id)
         if existing is not None and not existing.done():
-            action_logger.debug(
+            relic_logger.debug(
                 f"Relic timer already running for channel {self.channel_id}; "
                 "skip restore"
             )
@@ -95,7 +100,7 @@ class RelicTimer:
 
         if now >= appear_at:
             db.finish_relic_event(int(row["id"]), "completed")
-            action_logger.info(
+            relic_logger.info(
                 f"Relic event {row['id']} already expired on restore; marked completed"
             )
             return False
@@ -112,7 +117,7 @@ class RelicTimer:
         self.tasks[self.channel_id] = task
 
         remaining = (appear_at - now).total_seconds()
-        action_logger.info(
+        relic_logger.info(
             f"Relic timer restored from DB (event_id={self._event_id}), "
             f"remaining ~{int(remaining)}s, warning_sent={self._warning_sent}"
         )
@@ -163,7 +168,6 @@ class RelicTimer:
                     color=discord.Color.gold(),
                     timestamp=datetime.now(),
                 )
-                # Если после рестарта до появления меньше 10 минут — пишем точнее
                 remaining_min = max(
                     0,
                     int((appear_at - datetime.now()).total_seconds() // 60),
@@ -189,6 +193,10 @@ class RelicTimer:
 
                 db.set_relic_warning_sent(event_id)
                 self._warning_sent = True
+                relic_logger.info(
+                    f"Relic warning sent to channel ID {self.channel_id} "
+                    f"(event_id={event_id})"
+                )
 
             wait_until_end = (appear_at - datetime.now()).total_seconds()
             if wait_until_end > 0:
@@ -200,26 +208,30 @@ class RelicTimer:
             self.timer_duration = None
             self._event_id = None
             self._warning_sent = False
-            action_logger.info(
+            relic_logger.info(
                 f"Relic timer completed for channel ID: {self.channel_id} "
                 f"(event_id={event_id})"
             )
 
         except asyncio.CancelledError:
-            # Не сбрасываем состояние, если уже запущен другой event_id
             if self._event_id == event_id:
                 self.tasks.pop(self.channel_id, None)
                 self.timer_start_time = None
                 self.timer_duration = None
                 self._event_id = None
                 self._warning_sent = False
-            action_logger.info(
-                f"Relic timer cancelled in channel ID: {self.channel_id} "
-                f"(event_id={event_id})"
+            relic_logger.debug(
+                f"Relic timer task cancelled internally "
+                f"(channel_id={self.channel_id}, event_id={event_id})"
             )
             raise
 
-    def cancel_timer(self) -> bool:
+    def cancel_timer(
+        self,
+        *,
+        user_info: Optional[str] = None,
+        log: bool = True,
+    ) -> bool:
         """Отменяет активный таймер и помечает событие в БД."""
         had_task = self.channel_id in self.tasks
         had_db = db.cancel_active_relic_event(self.channel_id)
@@ -233,7 +245,14 @@ class RelicTimer:
         if task is not None:
             task.cancel()
 
-        return had_task or had_db
+        cancelled = had_task or had_db
+        if cancelled and log:
+            user_prefix = f"{user_info} | " if user_info else ""
+            relic_logger.info(
+                f"{user_prefix}Relic timer cancelled "
+                f"(channel_id={self.channel_id})"
+            )
+        return cancelled
 
     def is_active(self) -> bool:
         if self.channel_id in self.tasks:

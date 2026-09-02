@@ -8,8 +8,8 @@ from logging.handlers import RotatingFileHandler
 import config
 
 
-def setup_logging() -> tuple[logging.Logger, logging.Logger]:
-    """Создаёт каталог логов и возвращает (action_logger, error_logger)."""
+def setup_logging() -> tuple[logging.Logger, logging.Logger, logging.Logger]:
+    """Возвращает (action_logger, error_logger, relic_logger)."""
     config.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     formatter = logging.Formatter(
@@ -18,30 +18,36 @@ def setup_logging() -> tuple[logging.Logger, logging.Logger]:
     )
 
     action = logging.getLogger("beacon_actions")
+    relic = logging.getLogger("relic_actions")
+    errors = logging.getLogger("beacon_errors")
+
     if not action.handlers:
-        handler = RotatingFileHandler(
+        action_handler = RotatingFileHandler(
             config.LOG_DIR / "actions.log",
             maxBytes=config.LOG_MAX_BYTES,
             backupCount=config.LOG_BACKUP_COUNT,
             encoding="utf-8",
         )
-        handler.setFormatter(formatter)
-        action.addHandler(handler)
+        action_handler.setFormatter(formatter)
+        action.addHandler(action_handler)
         action.setLevel(logging.INFO)
 
-    errors = logging.getLogger("beacon_errors")
+        # Один файл actions.log, разные имена логгеров в записи
+        relic.addHandler(action_handler)
+        relic.setLevel(logging.INFO)
+
     if not errors.handlers:
-        handler = RotatingFileHandler(
+        error_handler = RotatingFileHandler(
             config.LOG_DIR / "errors.log",
             maxBytes=config.LOG_MAX_BYTES,
             backupCount=config.LOG_BACKUP_COUNT,
             encoding="utf-8",
         )
-        handler.setFormatter(formatter)
-        errors.addHandler(handler)
+        error_handler.setFormatter(formatter)
+        errors.addHandler(error_handler)
         errors.setLevel(logging.ERROR)
 
-    return action, errors
+    return action, errors, relic
 
 
-action_logger, error_logger = setup_logging()
+action_logger, error_logger, relic_logger = setup_logging()

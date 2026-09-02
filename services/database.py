@@ -106,7 +106,12 @@ def get_beacon(beacon_id: str) -> Optional[Row]:
 
 
 def beacon_exists(beacon_id: str) -> bool:
-    return get_beacon(beacon_id) is not None
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM beacons WHERE beacon_id = ? LIMIT 1",
+            (beacon_id,),
+        ).fetchone()
+        return row is not None
 
 
 def insert_beacon(

@@ -114,14 +114,18 @@ def setup(bot: BeaconBot) -> None:
             )
             return
 
+        user_info = get_user_info(interaction)
+
         if db.beacon_exists(beacon_id):
+            action_logger.warning(
+                f"{user_info} tried to add duplicate beacon {beacon_id}"
+            )
             await interaction.response.send_message(
                 f"❌ Маяк {beacon_id} уже существует!",
                 ephemeral=True,
             )
             return
 
-        user_info = get_user_info(interaction)
         user_id = str(interaction.user.id)
         username = interaction.user.name
         rate = rate_from_priority(priority.value)
@@ -179,6 +183,9 @@ def setup(bot: BeaconBot) -> None:
             )
 
         except sqlite3.IntegrityError:
+            action_logger.warning(
+                f"{user_info} duplicate beacon {beacon_id} (integrity constraint)"
+            )
             await interaction.response.send_message(
                 f"❌ Маяк {beacon_id} уже существует!",
                 ephemeral=True,

@@ -132,6 +132,7 @@ def build_relic_restarted_embed(
 
 def build_relic_already_running_embed(
     channel: discord.abc.Messageable,
+    timer: RelicTimer,
 ) -> discord.Embed:
     embed = discord.Embed(
         title="⏳ Таймер уже запущен",
@@ -140,7 +141,23 @@ def build_relic_already_running_embed(
             "таймер появления реликвии."
         ),
         color=discord.Color.orange(),
+        timestamp=datetime.now(),
     )
+    embed.add_field(
+        name="⏱️ Оставшееся время",
+        value=f"**{timer.get_remaining_time_formatted()}**",
+        inline=False,
+    )
+    if timer.timer_start_time and timer.timer_duration:
+        appear_time = timer.timer_start_time + timedelta(
+            minutes=timer.timer_duration
+        )
+        unix_timestamp = appear_unix_timestamp_at(appear_time)
+        embed.add_field(
+            name="⏰ Примерное время появления",
+            value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
+            inline=False,
+        )
     embed.add_field(
         name="🔄 Что делать?",
         value=(

@@ -8,6 +8,9 @@ from discord.ui import Button, View
 from handlers.views.clear import prompt_clear_all_beacons
 from handlers.views.select import BeaconSelectView
 from services import database as db
+from services.beacon_service import apply_decay_to_all_beacons
+from utils.formatting import get_user_info
+from utils.logging_setup import action_logger
 
 
 async def open_beacon_select(
@@ -143,9 +146,14 @@ class BeaconMenuView(View):
         interaction: discord.Interaction,
         button: Button,
     ) -> None:
+        updated = apply_decay_to_all_beacons()
+        action_logger.info(
+            f"{get_user_info(interaction)} manual beacon refresh "
+            f"({updated} beacons updated)"
+        )
         embed = discord.Embed(
             title="🔄 Данные обновлены",
-            description="Последнее обновление выполнено",
+            description=f"Пересчитано маяков: **{updated}**",
             color=discord.Color.green(),
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)

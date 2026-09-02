@@ -11,7 +11,7 @@ from discord.ui import Button, Modal, TextInput, View
 import config
 from utils.autocomplete import get_minute_options
 from utils.formatting import get_user_info
-from utils.logging_setup import action_logger
+from utils.logging_setup import relic_logger
 from utils.relic_embeds import (
     build_relic_active_status_embed,
     build_relic_already_running_embed,
@@ -122,7 +122,10 @@ def setup(bot: BeaconBot) -> None:
                         )
                         return
 
-                    await _restart_timer(modal_interaction, new_minutes=new_minutes)
+                    await _restart_timer(
+                        modal_interaction,
+                        new_minutes=new_minutes,
+                    )
 
             class TimerManageView(View):
                 def __init__(self) -> None:
@@ -163,13 +166,12 @@ def setup(bot: BeaconBot) -> None:
                         )
                         return
 
-                    if timer.cancel_timer():
+                    if timer.cancel_timer(
+                        user_info=get_user_info(btn_interaction),
+                    ):
                         await btn_interaction.response.edit_message(
                             embed=build_relic_cancelled_embed(),
                             view=None,
-                        )
-                        action_logger.info(
-                            f"{get_user_info(btn_interaction)} cancelled relic timer"
                         )
                     else:
                         await btn_interaction.response.edit_message(
@@ -183,19 +185,21 @@ def setup(bot: BeaconBot) -> None:
                 *,
                 new_minutes: int,
             ) -> None:
-                timer.cancel_timer()
-                await timer.start_timer(bot, new_minutes)
+                ui_user = get_user_info(ui_interaction)
+                timer.cancel_timer(log=False)
+                await timer.start_timer(
+                    bot,
+                    new_minutes,
+                    user_info=ui_user,
+                    restarted=True,
+                )
                 await ui_interaction.response.edit_message(
                     embed=build_relic_restarted_embed(relic_channel, new_minutes),
                     view=None,
                 )
-                action_logger.info(
-                    f"{get_user_info(ui_interaction)} restarted relic timer "
-                    f"for {new_minutes} minutes"
-                )
 
             await interaction.response.send_message(
-                embed=build_relic_already_running_embed(relic_channel),
+                embed=build_relic_already_running_embed(relic_channel, timer),
                 view=TimerManageView(),
                 ephemeral=True,
             )
@@ -204,7 +208,7 @@ def setup(bot: BeaconBot) -> None:
         if minutes is None:
             minutes = config.DEFAULT_RELIC_MINUTES
 
-        await timer.start_timer(bot, minutes)
+        await timer.start_timer(bot, minutes, user_info=user_info)
         embed = build_relic_started_embed(
             relic_channel,
             minutes,
@@ -225,12 +229,11 @@ def setup(bot: BeaconBot) -> None:
             )
             return
 
-        if bot.relic_timer.cancel_timer():
+        if bot.relic_timer.cancel_timer(user_info=user_info):
             embed = build_relic_cancelled_embed(
                 "Таймер появления реликвии был успешно отменен."
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
-            action_logger.info(f"{user_info} cancelled relic timer")
         else:
             await interaction.response.send_message(
                 "❌ Нет активного таймера реликвии.",
@@ -242,17 +245,23 @@ def setup(bot: BeaconBot) -> None:
         description="Показать статус таймера реликвии",
     )
     async def status(interaction: discord.Interaction) -> None:
+        user_info = get_user_info(interaction)
         relic_channel = await ensure_relic_channel(
             interaction,
             bot,
-            user_info=get_user_info(interaction),
+            user_info=user_info,
             log_context="/relic status",
         )
         if relic_channel is None:
             return
 
         timer = bot.relic_timer
-        if timer.is_active():
+        active = timer.is_active()
+        relic_logger.info(
+            f"{user_info} checked relic timer status "
+            f"(active={active})"
+        )
+        if active:
             embed = build_relic_active_status_embed(relic_channel, timer)
         else:
             embed = build_relic_inactive_embed()
