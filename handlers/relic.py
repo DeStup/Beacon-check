@@ -9,7 +9,6 @@ from discord import app_commands
 from discord.ui import Button, Modal, TextInput, View
 
 import config
-from utils.autocomplete import get_minute_options
 from utils.formatting import get_user_info
 from utils.logging_setup import relic_logger
 from utils.relic_embeds import (
@@ -41,7 +40,6 @@ def setup(bot: BeaconBot) -> None:
     @app_commands.describe(
         minutes="Время до появления реликвии в минутах (по умолчанию 90)"
     )
-    @app_commands.autocomplete(minutes=get_minute_options)
     async def start(
         interaction: discord.Interaction,
         minutes: Optional[int] = None,
