@@ -18,3 +18,4 @@ def setup(bot: BeaconBot) -> None:
         system_logger.info(f"Bot {bot.user} started!")
         start_background_tasks(bot)
         await bot.relic_timer.restore(bot)
+        await bot.timer_manager.restore_all(bot)

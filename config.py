@@ -42,6 +42,9 @@ DEFAULT_RELIC_MINUTES: int = 90
 MAX_RELIC_MINUTES: int = 1440
 RELIC_WARNING_MINUTES: int = 10
 
+MAX_TIMER_NAME_LENGTH: int = 50
+MAX_TIMER_SECONDS: int = 7 * 24 * 60 * 60  # 7 дней
+
 # Пользователи с правом /beacon clear вне админ-прав гильдии
 CLEAR_ALLOWED_USER_IDS: frozenset[int] = frozenset({226751097295994881})
 

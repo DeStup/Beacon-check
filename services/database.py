@@ -87,6 +87,45 @@ def init_db() -> None:
                 "ALTER TABLE relic_events ADD COLUMN started_by TEXT"
             )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS timers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                trigger_at TEXT NOT NULL,
+                created_by_id INTEGER NOT NULL,
+                created_by_name TEXT NOT NULL,
+                channel_id INTEGER NOT NULL,
+                guild_id INTEGER,
+                warning_minutes INTEGER NOT NULL DEFAULT 5,
+                warning_sent INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active',
+                ended_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_timers_active
+            ON timers (status, trigger_at)
+            """
+        )
+        timer_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(timers)")
+        }
+        if "warning_minutes" not in timer_columns:
+            conn.execute(
+                "ALTER TABLE timers ADD COLUMN warning_minutes "
+                "INTEGER NOT NULL DEFAULT 5"
+            )
+        if "warning_sent" not in timer_columns:
+            conn.execute(
+                "ALTER TABLE timers ADD COLUMN warning_sent "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+
 
 def list_beacons_summary() -> list[Row]:
     with get_connection() as conn:
@@ -403,3 +442,94 @@ def cancel_active_relic_event(channel_id: int) -> bool:
             (datetime.now().isoformat(), channel_id),
         )
         return cursor.rowcount > 0
+
+
+# --- timers ---
+
+
+def create_timer(
+    *,
+    name: str,
+    created_at: datetime,
+    trigger_at: datetime,
+    created_by_id: int,
+    created_by_name: str,
+    channel_id: int,
+    warning_minutes: int,
+    guild_id: Optional[int] = None,
+) -> int:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO timers (
+                name, created_at, trigger_at,
+                created_by_id, created_by_name,
+                channel_id, guild_id, warning_minutes,
+                warning_sent, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')
+            """,
+            (
+                name,
+                created_at.isoformat(),
+                trigger_at.isoformat(),
+                created_by_id,
+                created_by_name,
+                channel_id,
+                guild_id,
+                warning_minutes,
+            ),
+        )
+        return int(cursor.lastrowid)
+
+
+def get_timer(timer_id: int) -> Optional[Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM timers WHERE id = ?",
+            (timer_id,),
+        ).fetchone()
+
+
+def list_active_timers() -> list[Row]:
+    with get_connection() as conn:
+        return list(
+            conn.execute(
+                """
+                SELECT * FROM timers
+                WHERE status = 'active'
+                ORDER BY trigger_at ASC
+                """
+            ).fetchall()
+        )
+
+
+def set_timer_warning_sent(timer_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE timers
+            SET warning_sent = 1
+            WHERE id = ? AND status = 'active'
+            """,
+            (timer_id,),
+        )
+
+
+def finish_timer(timer_id: int, status: str) -> bool:
+    """status: completed | cancelled."""
+    if status not in {"completed", "cancelled"}:
+        raise ValueError(f"Invalid timer status: {status}")
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE timers
+            SET status = ?, ended_at = ?
+            WHERE id = ? AND status = 'active'
+            """,
+            (status, datetime.now().isoformat(), timer_id),
+        )
+        return cursor.rowcount > 0
+
+
+def cancel_timer(timer_id: int) -> bool:
+    return finish_timer(timer_id, "cancelled")
