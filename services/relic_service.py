@@ -173,7 +173,7 @@ class RelicTimer:
                 )
                 embed.add_field(
                     name="📢 Приготовьтесь!",
-                    value="Соберите команду и подготовьте снаряжение!",
+                    value="Соберите отряд и подготовьте снаряжение!",
                     inline=True,
                 )
                 embed.add_field(
