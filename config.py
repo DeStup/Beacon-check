@@ -17,6 +17,15 @@ DB_PATH = DATA_DIR / "beacons.db"
 TOKEN: str | None = os.getenv("TOKEN")
 GUILD_ID: int = int(os.getenv("GUILD", "0"))
 RELIC_CHANNEL_ID: int = int(os.getenv("RELIC_CHANNEL_ID", "0"))
+# Ссылка на сообщение с подпиской/отпиской на роли уведомлений о реликвии
+RELIC_LINK_MESSAGE_ROLES: str = (
+    os.getenv("RELIC_LINK_MESSAGE_ROLES")
+    or os.getenv("RELIC_NOTIFY_MESSAGE_URL")
+    or os.getenv("RELIC_NOTIFY_MESSAGE_ID")
+    or ""
+).strip()
+# Роль для пинга в предупреждении «реликвия скоро появится»
+RELIC_QRF_ROLE_ID: int = int(os.getenv("RELIC_QRF_ROLE_ID", "0"))
 # Канал алертов: ALERT_CHANNEL_ID или legacy ALERT_ROLE_ID в .env
 ALERT_CHANNEL_ID: int = int(
     os.getenv("ALERT_CHANNEL_ID", os.getenv("ALERT_ROLE_ID", "0"))

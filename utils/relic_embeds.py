@@ -25,6 +25,61 @@ def appear_unix_timestamp_at(dt: datetime) -> int:
     return int(dt.timestamp())
 
 
+def relic_notify_subscribe_text() -> Optional[str]:
+    """Текст про подписку на роль уведомлений; None если ссылка не задана."""
+    url = config.RELIC_LINK_MESSAGE_ROLES
+    if not url:
+        return None
+    return (
+        "Подписаться на пинги QRF или отписаться - "
+        f"[здесь]({url})"
+    )
+
+
+def notification_field_value() -> str:
+    subscribe = relic_notify_subscribe_text()
+    if subscribe:
+        return f"{RELIC_WARNING_TEXT}\n{subscribe}"
+    return RELIC_WARNING_TEXT
+
+
+def build_relic_warning_embed(
+    unix_timestamp: int,
+    *,
+    started_by: Optional[str] = None,
+) -> discord.Embed:
+    prepare = "Соберите отряд и подготовьте снаряжение!"
+    subscribe = relic_notify_subscribe_text()
+    if subscribe:
+        prepare = f"{prepare}\n{subscribe}"
+
+    embed = discord.Embed(
+        title="⚔️ РЕЛИКВИЯ СКОРО ПОЯВИТСЯ!",
+        color=discord.Color.gold(),
+        timestamp=datetime.now(),
+    )
+    embed.add_field(
+        name="📢 Приготовьтесь!",
+        value=prepare,
+        inline=True,
+    )
+    embed.add_field(
+        name="⏰ Время появления",
+        value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
+        inline=False,
+    )
+    if started_by:
+        embed.set_footer(text=f"Запустил: {started_by}")
+    return embed
+
+
+def relic_qrf_ping_content() -> Optional[str]:
+    """Контент для реального пинга роли (упоминания в embed не пингуют)."""
+    if not config.RELIC_QRF_ROLE_ID:
+        return None
+    return f"<@&{config.RELIC_QRF_ROLE_ID}>"
+
+
 def add_relic_schedule_fields(
     embed: discord.Embed,
     channel_mention: str,
@@ -35,7 +90,7 @@ def add_relic_schedule_fields(
 ) -> None:
     embed.add_field(
         name="📢 Уведомление",
-        value=RELIC_WARNING_TEXT,
+        value=notification_field_value(),
         inline=False,
     )
     embed.add_field(
@@ -93,7 +148,7 @@ def build_relic_started_embed(
     started_by: Optional[str] = None,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title="⏳ Таймер реликвии запущен",
+        title="⏳ Таймер Реликвии запущен",
         color=discord.Color.gold(),
         timestamp=datetime.now(),
     )
@@ -113,7 +168,7 @@ def build_relic_restarted_embed(
     minutes: int,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title="🔄 Таймер перезапущен",
+        title="🔄 Таймер Реликвии перезапущен",
         color=discord.Color.blue(),
         timestamp=datetime.now(),
     )
@@ -131,7 +186,7 @@ def build_relic_already_running_embed(
     timer: RelicTimer,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title="⏳ Таймер уже запущен",
+        title="⏳ Таймер Реликвии уже запущен",
         color=discord.Color.orange(),
         timestamp=datetime.now(),
     )
@@ -149,10 +204,10 @@ def build_relic_already_running_embed(
 
 
 def build_relic_cancelled_embed(
-    description: str = "Таймер появления реликвии был отменен.",
+    description: str = "Таймер появления Реликвии был отменен.",
 ) -> discord.Embed:
     return discord.Embed(
-        title="⏹️ Таймер отменен",
+        title="⏹️ Таймер Реликвии отменен",
         description=description,
         color=discord.Color.red(),
         timestamp=datetime.now(),
@@ -164,13 +219,13 @@ def build_relic_active_status_embed(
     timer: RelicTimer,
 ) -> discord.Embed:
     embed = discord.Embed(
-        title="⏳ Таймер реликвии активен",
+        title="⏳ Таймер Реликвии активен",
         color=discord.Color.green(),
         timestamp=datetime.now(),
     )
     embed.add_field(
         name="📢 Уведомление",
-        value=RELIC_WARNING_TEXT,
+        value=notification_field_value(),
         inline=False,
     )
     if timer.timer_start_time and timer.timer_duration:
@@ -190,12 +245,12 @@ def build_relic_active_status_embed(
 
 def build_relic_inactive_embed() -> discord.Embed:
     embed = discord.Embed(
-        title="❌ Таймер не активен",
-        description="Нет запущенного таймера реликвии.",
+        title="❌ Таймер Реликвии не активен",
+        description="Нет запущенного таймера Реликвии.",
         color=discord.Color.red(),
     )
     embed.add_field(
-        name="💡 Запустить таймер",
+        name="💡 Запустить таймер Реликвии",
         value="Используйте команду `/relic start` для запуска таймера",
         inline=False,
     )

@@ -11,6 +11,7 @@ import discord
 import config
 from services import database as db
 from utils.logging_setup import error_logger, relic_logger, system_logger
+from utils.relic_embeds import build_relic_warning_embed, relic_qrf_ping_content
 
 if TYPE_CHECKING:
     from bot import BeaconBot
@@ -166,24 +167,15 @@ class RelicTimer:
                     return
 
                 unix_timestamp = int(appear_at.timestamp())
-                embed = discord.Embed(
-                    title="⚔️ РЕЛИКВИЯ СКОРО ПОЯВИТСЯ!",
-                    color=discord.Color.gold(),
-                    timestamp=datetime.now(),
+                embed = build_relic_warning_embed(
+                    unix_timestamp,
+                    started_by=self.started_by,
                 )
-                embed.add_field(
-                    name="📢 Приготовьтесь!",
-                    value="Соберите отряд и подготовьте снаряжение!",
-                    inline=True,
+                await channel.send(
+                    content=relic_qrf_ping_content(),
+                    embed=embed,
+                    allowed_mentions=discord.AllowedMentions(roles=True),
                 )
-                embed.add_field(
-                    name="⏰ Время появления",
-                    value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
-                    inline=False,
-                )
-                if self.started_by:
-                    embed.set_footer(text=f"Запустил: {self.started_by}")
-                await channel.send(embed=embed)
 
                 db.set_relic_warning_sent(event_id)
                 self._warning_sent = True
