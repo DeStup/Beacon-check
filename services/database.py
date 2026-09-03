@@ -67,7 +67,8 @@ def init_db() -> None:
                 duration_minutes INTEGER NOT NULL,
                 warning_sent INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'active',
-                ended_at TEXT
+                ended_at TEXT,
+                started_by TEXT
             )
             """
         )
@@ -77,6 +78,14 @@ def init_db() -> None:
             ON relic_events (channel_id, status)
             """
         )
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(relic_events)")
+        }
+        if "started_by" not in columns:
+            conn.execute(
+                "ALTER TABLE relic_events ADD COLUMN started_by TEXT"
+            )
 
 
 def list_beacons_summary() -> list[Row]:
@@ -330,6 +339,7 @@ def create_relic_event(
     channel_id: int,
     started_at: datetime,
     duration_minutes: int,
+    started_by: Optional[str] = None,
 ) -> int:
     """Создаёт активное событие; предыдущие active для канала закрывает как cancelled."""
     with get_connection() as conn:
@@ -345,10 +355,11 @@ def create_relic_event(
         cursor = conn.execute(
             """
             INSERT INTO relic_events (
-                channel_id, started_at, duration_minutes, warning_sent, status
-            ) VALUES (?, ?, ?, 0, 'active')
+                channel_id, started_at, duration_minutes,
+                warning_sent, status, started_by
+            ) VALUES (?, ?, ?, 0, 'active', ?)
             """,
-            (channel_id, started_at.isoformat(), duration_minutes),
+            (channel_id, started_at.isoformat(), duration_minutes, started_by),
         )
         return int(cursor.lastrowid)
 

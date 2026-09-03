@@ -191,6 +191,7 @@ def setup(bot: BeaconBot) -> None:
                     bot,
                     new_minutes,
                     user_info=ui_user,
+                    started_by=ui_interaction.user.name,
                     restarted=True,
                 )
                 await ui_interaction.response.edit_message(
@@ -208,7 +209,12 @@ def setup(bot: BeaconBot) -> None:
         if minutes is None:
             minutes = config.DEFAULT_RELIC_MINUTES
 
-        await timer.start_timer(bot, minutes, user_info=user_info)
+        await timer.start_timer(
+            bot,
+            minutes,
+            user_info=user_info,
+            started_by=interaction.user.name,
+        )
         embed = build_relic_started_embed(
             relic_channel,
             minutes,

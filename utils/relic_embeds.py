@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Optional
 import discord
 
 import config
-from utils.formatting import format_duration_minutes
 from utils.logging_setup import error_logger
 
 if TYPE_CHECKING:
@@ -32,6 +31,7 @@ def add_relic_schedule_fields(
     unix_timestamp: int,
     *,
     channel_inline: bool = True,
+    include_channel: bool = True,
 ) -> None:
     embed.add_field(
         name="📢 Уведомление",
@@ -43,11 +43,12 @@ def add_relic_schedule_fields(
         value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
         inline=True,
     )
-    embed.add_field(
-        name="📌 Канал",
-        value=channel_mention,
-        inline=channel_inline,
-    )
+    if include_channel:
+        embed.add_field(
+            name="📌 Канал",
+            value=channel_mention,
+            inline=channel_inline,
+        )
 
 
 async def ensure_relic_channel(
@@ -91,10 +92,8 @@ def build_relic_started_embed(
     *,
     started_by: Optional[str] = None,
 ) -> discord.Embed:
-    time_str = format_duration_minutes(minutes)
     embed = discord.Embed(
         title="⏳ Таймер реликвии запущен",
-        description=f"Реликвия появится через **{time_str}**",
         color=discord.Color.gold(),
         timestamp=datetime.now(),
     )
@@ -102,9 +101,8 @@ def build_relic_started_embed(
         embed,
         channel.mention,
         appear_unix_timestamp(minutes),
-        channel_inline=True,
+        include_channel=False,
     )
-    embed.add_field(name="📊 Статус", value="🟢 Активен", inline=True)
     if started_by:
         embed.set_footer(text=f"Запустил: {started_by}")
     return embed
@@ -114,10 +112,8 @@ def build_relic_restarted_embed(
     channel: discord.abc.Messageable,
     minutes: int,
 ) -> discord.Embed:
-    time_str = format_duration_minutes(minutes)
     embed = discord.Embed(
         title="🔄 Таймер перезапущен",
-        description=f"Таймер появления реликвии перезапущен на **{time_str}**",
         color=discord.Color.blue(),
         timestamp=datetime.now(),
     )
@@ -125,28 +121,19 @@ def build_relic_restarted_embed(
         embed,
         channel.mention,
         appear_unix_timestamp(minutes),
-        channel_inline=False,
+        include_channel=False,
     )
     return embed
 
 
 def build_relic_already_running_embed(
-    channel: discord.abc.Messageable,
+    _channel: discord.abc.Messageable,
     timer: RelicTimer,
 ) -> discord.Embed:
     embed = discord.Embed(
         title="⏳ Таймер уже запущен",
-        description=(
-            f"В канале {channel.mention} уже запущен "
-            "таймер появления реликвии."
-        ),
         color=discord.Color.orange(),
         timestamp=datetime.now(),
-    )
-    embed.add_field(
-        name="⏱️ Оставшееся время",
-        value=f"**{timer.get_remaining_time_formatted()}**",
-        inline=False,
     )
     if timer.timer_start_time and timer.timer_duration:
         appear_time = timer.timer_start_time + timedelta(
@@ -158,14 +145,6 @@ def build_relic_already_running_embed(
             value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
             inline=False,
         )
-    embed.add_field(
-        name="🔄 Что делать?",
-        value=(
-            "Отмените текущий таймер или нажмите **Перезапустить** "
-            "и введите нужное число минут."
-        ),
-        inline=False,
-    )
     return embed
 
 
@@ -181,32 +160,18 @@ def build_relic_cancelled_embed(
 
 
 def build_relic_active_status_embed(
-    channel: discord.abc.Messageable,
+    _channel: discord.abc.Messageable,
     timer: RelicTimer,
 ) -> discord.Embed:
     embed = discord.Embed(
         title="⏳ Таймер реликвии активен",
-        description=(
-            f"В канале {channel.mention} запущен "
-            "таймер появления реликвии."
-        ),
         color=discord.Color.green(),
         timestamp=datetime.now(),
     )
     embed.add_field(
-        name="⏱️ Оставшееся время",
-        value=f"**{timer.get_remaining_time_formatted()}**",
-        inline=False,
-    )
-    embed.add_field(
         name="📢 Уведомление",
         value=RELIC_WARNING_TEXT,
-        inline=True,
-    )
-    embed.add_field(
-        name="📌 Канал",
-        value=channel.mention,
-        inline=True,
+        inline=False,
     )
     if timer.timer_start_time and timer.timer_duration:
         appear_time = timer.timer_start_time + timedelta(
@@ -214,10 +179,12 @@ def build_relic_active_status_embed(
         )
         unix_timestamp = appear_unix_timestamp_at(appear_time)
         embed.add_field(
-            name="⏰ Примерное время появления",
+            name="⏰ Время появления",
             value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
-            inline=False,
+            inline=True,
         )
+    if timer.started_by:
+        embed.set_footer(text=f"Запустил: {timer.started_by}")
     return embed
 
 

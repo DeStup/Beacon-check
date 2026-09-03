@@ -24,6 +24,7 @@ class RelicTimer:
         self.tasks: dict[int, asyncio.Task[None]] = {}
         self.timer_start_time: Optional[datetime] = None
         self.timer_duration: Optional[int] = None
+        self.started_by: Optional[str] = None
         self._event_id: Optional[int] = None
         self._warning_sent: bool = False
 
@@ -33,6 +34,7 @@ class RelicTimer:
         minutes: int = config.DEFAULT_RELIC_MINUTES,
         *,
         user_info: Optional[str] = None,
+        started_by: Optional[str] = None,
         restarted: bool = False,
     ) -> Optional[asyncio.Task[None]]:
         """Запускает таймер; предупреждение за RELIC_WARNING_MINUTES до конца."""
@@ -56,10 +58,12 @@ class RelicTimer:
             channel_id=self.channel_id,
             started_at=started_at,
             duration_minutes=minutes,
+            started_by=started_by,
         )
 
         self.timer_start_time = started_at
         self.timer_duration = minutes
+        self.started_by = started_by
         self._event_id = event_id
         self._warning_sent = False
 
@@ -110,6 +114,7 @@ class RelicTimer:
         self.timer_duration = duration
         self._event_id = int(row["id"])
         self._warning_sent = bool(row["warning_sent"])
+        self.started_by = row["started_by"] if "started_by" in row.keys() else None
 
         if existing is not None:
             existing.cancel()
@@ -155,6 +160,7 @@ class RelicTimer:
                     self.tasks.pop(self.channel_id, None)
                     self.timer_start_time = None
                     self.timer_duration = None
+                    self.started_by = None
                     self._event_id = None
                     self._warning_sent = False
                     return
@@ -162,34 +168,21 @@ class RelicTimer:
                 unix_timestamp = int(appear_at.timestamp())
                 embed = discord.Embed(
                     title="⚔️ РЕЛИКВИЯ СКОРО ПОЯВИТСЯ!",
-                    description=(
-                        "Через ~10 минут появится реликвия. "
-                        "Вооружайтесь и будьте готовы к бою!"
-                    ),
                     color=discord.Color.gold(),
                     timestamp=datetime.now(),
-                )
-                remaining_min = max(
-                    0,
-                    int((appear_at - datetime.now()).total_seconds() // 60),
-                )
-                if remaining_min < config.RELIC_WARNING_MINUTES:
-                    embed.description = (
-                        f"Через ~{remaining_min} мин появится реликвия. "
-                        "Вооружайтесь и будьте готовы к бою!"
-                    )
-
-                embed.add_field(
-                    name="⏰ Время появления",
-                    value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
-                    inline=False,
                 )
                 embed.add_field(
                     name="📢 Приготовьтесь!",
                     value="Соберите команду и подготовьте снаряжение!",
                     inline=True,
                 )
-                embed.set_footer(text="Не пропустите появление реликвии!")
+                embed.add_field(
+                    name="⏰ Время появления",
+                    value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
+                    inline=False,
+                )
+                if self.started_by:
+                    embed.set_footer(text=f"Запустил: {self.started_by}")
                 await channel.send(embed=embed)
 
                 db.set_relic_warning_sent(event_id)
@@ -207,6 +200,7 @@ class RelicTimer:
             self.tasks.pop(self.channel_id, None)
             self.timer_start_time = None
             self.timer_duration = None
+            self.started_by = None
             self._event_id = None
             self._warning_sent = False
             system_logger.info(
@@ -219,6 +213,7 @@ class RelicTimer:
                 self.tasks.pop(self.channel_id, None)
                 self.timer_start_time = None
                 self.timer_duration = None
+                self.started_by = None
                 self._event_id = None
                 self._warning_sent = False
             system_logger.debug(
@@ -240,6 +235,7 @@ class RelicTimer:
         task = self.tasks.pop(self.channel_id, None)
         self.timer_start_time = None
         self.timer_duration = None
+        self.started_by = None
         self._event_id = None
         self._warning_sent = False
 
