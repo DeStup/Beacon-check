@@ -32,6 +32,7 @@ logs/                # actions.log, errors.log
 | `RELIC_LINK_MESSAGE_ROLES` | Ссылка на сообщение для подписки/отписки на роль уведомлений |
 | `RELIC_QRF_ROLE_ID` | Роль для пинга в предупреждении о реликвии |
 | `ALERT_CHANNEL_ID` | Канал алертов по маякам (или legacy `ALERT_ROLE_ID`) |
+| `UPKEEP_ALERT_CHANNEL_ID` | Канал предупреждений по upkeep (серебро) |
 
 ## Локальный запуск
 
@@ -55,9 +56,11 @@ docker compose up -d
 
 - `/beacon add|menu|refuel|status|edit|delete|clear`
 - `/relic start|cancel|status`
-- `/ping`
+- `/upkeep status`
+- `/timer add|status`
+- `/help` `/ping`
 
 ## Логи
 
-- `logs/actions.log` — `beacon_actions` (маяки), `relic_actions` (релик, пользователь), `system` (авто и старт бота)
+- `logs/actions.log` — `beacon_actions`, `relic_actions`, `timer_actions`, `upkeep_actions`, `system`
 - `logs/errors.log` — ошибки

@@ -44,3 +44,20 @@ def format_duration_minutes(minutes: int) -> str:
     if hours > 0:
         return f"{hours} ч {mins} мин"
     return f"{mins} мин"
+
+
+def format_duration_hours(hours: float) -> str:
+    """Человекочитаемая длительность из дробных часов."""
+    if hours <= 0:
+        return "0 мин"
+    total_minutes = int(hours * 60)
+    days, rem = divmod(total_minutes, 24 * 60)
+    hrs, mins = divmod(rem, 60)
+    parts: list[str] = []
+    if days:
+        parts.append(f"{days} д")
+    if hrs:
+        parts.append(f"{hrs} ч")
+    if mins or not parts:
+        parts.append(f"{mins} мин")
+    return " ".join(parts)

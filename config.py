@@ -30,6 +30,8 @@ RELIC_QRF_ROLE_ID: int = int(os.getenv("RELIC_QRF_ROLE_ID", "0"))
 ALERT_CHANNEL_ID: int = int(
     os.getenv("ALERT_CHANNEL_ID", os.getenv("ALERT_ROLE_ID", "0"))
 )
+# Канал предупреждений по upkeep (серебро)
+UPKEEP_ALERT_CHANNEL_ID: int = int(os.getenv("UPKEEP_ALERT_CHANNEL_ID", "0"))
 
 MAX_FUEL: float = 30.0
 MAX_LIFETIME: float = 100.0
@@ -53,6 +55,9 @@ RELIC_WARNING_MINUTES: int = 10
 
 MAX_TIMER_NAME_LENGTH: int = 50
 MAX_TIMER_SECONDS: int = 7 * 24 * 60 * 60  # 7 дней
+
+MAX_UPKEEP_NAME_LENGTH: int = 50
+UPKEEP_WARNING_HOURS: float = 3.0
 
 # Пользователи с правом /beacon clear вне админ-прав гильдии
 CLEAR_ALLOWED_USER_IDS: frozenset[int] = frozenset({226751097295994881})

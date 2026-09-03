@@ -2,6 +2,7 @@
 
 from utils.embeds import progress_bar, status_emoji
 from utils.formatting import (
+    format_duration_hours,
     format_duration_minutes,
     format_priority,
     get_user_info,
@@ -15,14 +16,22 @@ from utils.logging_setup import (
     setup_logging,
     system_logger,
     timer_logger,
+    upkeep_logger,
 )
-from utils.permissions import can_cancel_timer, can_clear_beacons, is_moderator
+from utils.permissions import (
+    can_cancel_timer,
+    can_clear_beacons,
+    can_manage_upkeep,
+    is_moderator,
+)
 
 __all__ = [
     "action_logger",
     "can_cancel_timer",
     "can_clear_beacons",
+    "can_manage_upkeep",
     "error_logger",
+    "format_duration_hours",
     "format_duration_minutes",
     "format_priority",
     "get_user_info",
@@ -35,4 +44,5 @@ __all__ = [
     "system_logger",
     "status_emoji",
     "timer_logger",
+    "upkeep_logger",
 ]

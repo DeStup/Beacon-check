@@ -32,7 +32,7 @@ def setup(bot: BeaconBot) -> None:
             inline=False,
         )
         embed.add_field(
-            name="Реликвия",
+            name="Таймер Реликвии",
             value=(
                 "`/relic start` — запустить таймер появления Реликвии "
                 "(по умолчанию 90 минут)\n"
@@ -42,12 +42,17 @@ def setup(bot: BeaconBot) -> None:
             inline=False,
         )
         embed.add_field(
-            name="Таймеры",
+            name="Таймер",
             value=(
                 "`/timer add` — создать таймер "
                 "(день/час/минута, уведомление по выбору)\n"
                 "`/timer status` — все активные таймеры"
             ),
+            inline=False,
+        )
+        embed.add_field(
+            name="Содержание",
+            value="`/upkeep status` — статус объектов и меню управления",
             inline=False,
         )
         embed.add_field(

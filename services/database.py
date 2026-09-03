@@ -126,6 +126,182 @@ def init_db() -> None:
                 "INTEGER NOT NULL DEFAULT 0"
             )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS upkeep_objects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                silver_per_hour REAL NOT NULL,
+                silver_amount REAL NOT NULL,
+                last_updated TEXT NOT NULL,
+                low_warning_sent INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_upkeep_objects_name
+            ON upkeep_objects (name)
+            """
+        )
+
+
+def list_upkeep_summary() -> list[Row]:
+    with get_connection() as conn:
+        return list(
+            conn.execute(
+                """
+                SELECT id, name, silver_per_hour, silver_amount, last_updated
+                FROM upkeep_objects
+                ORDER BY name COLLATE NOCASE
+                """
+            ).fetchall()
+        )
+
+
+def list_all_upkeep() -> list[Row]:
+    with get_connection() as conn:
+        return list(
+            conn.execute(
+                "SELECT * FROM upkeep_objects ORDER BY name COLLATE NOCASE"
+            ).fetchall()
+        )
+
+
+def get_upkeep_by_name(name: str) -> Optional[Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM upkeep_objects WHERE name = ?",
+            (name,),
+        ).fetchone()
+
+
+def get_upkeep_by_id(object_id: int) -> Optional[Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM upkeep_objects WHERE id = ?",
+            (object_id,),
+        ).fetchone()
+
+
+def upkeep_exists(name: str) -> bool:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM upkeep_objects WHERE name = ? LIMIT 1",
+            (name,),
+        ).fetchone()
+        return row is not None
+
+
+def insert_upkeep(
+    *,
+    name: str,
+    silver_per_hour: float,
+    silver_amount: float,
+    created_by: str,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO upkeep_objects (
+                name, silver_per_hour, silver_amount, last_updated,
+                low_warning_sent, created_by
+            ) VALUES (?, ?, ?, ?, 0, ?)
+            """,
+            (
+                name,
+                silver_per_hour,
+                silver_amount,
+                datetime.now().isoformat(),
+                created_by,
+            ),
+        )
+
+
+def delete_upkeep(name: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM upkeep_objects WHERE name = ?",
+            (name,),
+        )
+        return cursor.rowcount > 0
+
+
+def clear_all_upkeep() -> list[str]:
+    """Удаляет все объекты upkeep и возвращает список имён."""
+    with get_connection() as conn:
+        rows = conn.execute("SELECT name FROM upkeep_objects").fetchall()
+        names = [row["name"] for row in rows]
+        conn.execute("DELETE FROM upkeep_objects")
+        return names
+
+
+def update_upkeep(
+    object_id: int,
+    *,
+    name: Optional[str] = None,
+    silver_per_hour: Optional[float] = None,
+    silver_amount: Optional[float] = None,
+    last_updated: Optional[str] = None,
+    low_warning_sent: Optional[bool] = None,
+) -> bool:
+    set_parts: list[str] = []
+    params: list[Any] = []
+    if name is not None:
+        set_parts.append("name = ?")
+        params.append(name)
+    if silver_per_hour is not None:
+        set_parts.append("silver_per_hour = ?")
+        params.append(silver_per_hour)
+    if silver_amount is not None:
+        set_parts.append("silver_amount = ?")
+        params.append(silver_amount)
+    if last_updated is not None:
+        set_parts.append("last_updated = ?")
+        params.append(last_updated)
+    if low_warning_sent is not None:
+        set_parts.append("low_warning_sent = ?")
+        params.append(1 if low_warning_sent else 0)
+    if not set_parts:
+        return False
+    params.append(object_id)
+    with get_connection() as conn:
+        cursor = conn.execute(
+            f"UPDATE upkeep_objects SET {', '.join(set_parts)} WHERE id = ?",
+            params,
+        )
+        return cursor.rowcount > 0
+
+
+def apply_upkeep_decay_update(
+    object_id: int,
+    silver_amount: float,
+    last_updated: str,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE upkeep_objects
+            SET silver_amount = ?, last_updated = ?
+            WHERE id = ?
+            """,
+            (silver_amount, last_updated, object_id),
+        )
+
+
+def set_upkeep_low_warning(object_id: int, sent: bool) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE upkeep_objects SET low_warning_sent = ? WHERE id = ?",
+            (1 if sent else 0, object_id),
+        )
+
+
+def fetch_all_upkeep_for_update() -> list[Row]:
+    with get_connection() as conn:
+        return list(conn.execute("SELECT * FROM upkeep_objects").fetchall())
+
 
 def list_beacons_summary() -> list[Row]:
     with get_connection() as conn:
