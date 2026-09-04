@@ -52,7 +52,10 @@ def setup(bot: BeaconBot) -> None:
         )
         embed.add_field(
             name="Содержание",
-            value="`/upkeep status` — статус объектов и меню управления",
+            value=(
+                "`/upkeep status` — создать или обновить "
+                "панель Новгорода в канале"
+            ),
             inline=False,
         )
         embed.add_field(

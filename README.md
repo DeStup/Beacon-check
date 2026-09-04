@@ -33,6 +33,8 @@ logs/                # actions.log, errors.log
 | `RELIC_QRF_ROLE_ID` | Роль для пинга в предупреждении о реликвии |
 | `ALERT_CHANNEL_ID` | Канал алертов по маякам (или legacy `ALERT_ROLE_ID`) |
 | `UPKEEP_ALERT_CHANNEL_ID` | Канал предупреждений по upkeep (серебро) |
+| `UPKEEP_PANEL_CHANNEL_ID` | Канал постоянного сообщения «Панель Новгорода» |
+| `SILVER_EMOJI_ID` | ID кастомного эмодзи серебра |
 
 ## Локальный запуск
 

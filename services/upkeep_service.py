@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,8 @@ from utils.logging_setup import error_logger, system_logger
 
 if TYPE_CHECKING:
     from bot import BeaconBot
+
+_panel_lock = asyncio.Lock()
 
 
 def display_silver_rate(rate: float) -> int:
@@ -108,39 +111,27 @@ def format_hours_left_display(hours_left: float) -> str:
 
 
 def format_upkeep_status_table(snaps: list[dict[str, Any]]) -> str:
-    """Моноширинная таблица для embed (выравнивание столбцов)."""
-    name_w, rate_w, stock_w, left_w = 16, 10, 10, 12
-    header = (
-        f"{'Объект':<{name_w}} "
-        f"{'Содерж./ч':>{rate_w}} "
-        f"{'Склад':>{stock_w}} "
-        f"{'Хватит':>{left_w}}"
-    )
-    sep = (
-        f"{'─' * name_w} "
-        f"{'─' * rate_w} "
-        f"{'─' * stock_w} "
-        f"{'─' * left_w}"
-    )
-    lines = [header, sep]
+    """Список объектов для embed — без колонок, читается на телефоне."""
+    lines: list[str] = []
     for snap in snaps:
         name = str(snap["name"])
-        if len(name) > name_w:
-            name = name[: name_w - 1] + "…"
-        mark = "!" if snap["hours_left"] < config.UPKEEP_WARNING_HOURS else " "
+        if snap["hours_left"] < config.UPKEEP_WARNING_HOURS:
+            mark = "⚠️ "
+        else:
+            mark = ""
         if snap["hours_left"] == float("inf"):
             left = "∞"
         else:
             left = format_duration_hours(snap["hours_left"])
-        if len(left) > left_w:
-            left = left[:left_w]
+        rate = display_silver_rate(snap["silver_per_hour"])
+        stock = display_silver_amount(snap["silver_amount"])
         lines.append(
-            f"{mark}{name:<{name_w - 1}} "
-            f"{display_silver_rate(snap['silver_per_hour']):>{rate_w}d} "
-            f"{display_silver_amount(snap['silver_amount']):>{stock_w}d} "
-            f"{left:>{left_w}}"
+            f"{mark}**{name}**\n"
+            f"{config.SILVER_EMOJI}`{stock}`"
+            f"\u2003⬇️`{rate}`/ч"
+            f"\u2003⏳`{left}`"
         )
-    return "```\n" + "\n".join(lines) + "\n```"
+    return "\n".join(lines)
 
 
 def build_upkeep_status_embed(
@@ -159,13 +150,13 @@ def build_upkeep_status_embed(
         timestamp=datetime.now(),
     )
     embed.add_field(
-        name="<:silver:1545181851423866890> Содержание",
-        value=f"{display_silver_rate(silver_per_hour)} серебра/час",
+        name=f"{config.SILVER_EMOJI} Склад",
+        value=f"{display_silver_amount(silver_amount)} серебра",
         inline=True,
     )
     embed.add_field(
-        name="<:keystone:1545182139862229002> Склад",
-        value=f"{display_silver_amount(silver_amount)} серебра",
+        name="Содержание",
+        value=f"{display_silver_rate(silver_per_hour)} серебра/час",
         inline=True,
     )
     left_name = "⏳ Хватит на"
@@ -179,6 +170,119 @@ def build_upkeep_status_embed(
         inline=False,
     )
     return embed
+
+
+def build_all_upkeep_status_embed() -> discord.Embed:
+    rows = db.list_all_upkeep()
+    embed = discord.Embed(
+        title="Панель Новгорода",
+        color=discord.Color.gold(),
+        timestamp=datetime.now(),
+    )
+    if not rows:
+        embed.description = "📭 Нет объектов содержания"
+        return embed
+
+    snaps = [snapshot_upkeep(row) for row in rows[:25]]
+    embed.description = format_upkeep_status_table(snaps)
+    return embed
+
+
+def _panel_channel(
+    bot: BeaconBot,
+) -> discord.TextChannel | discord.Thread | discord.VoiceChannel | None:
+    if not config.UPKEEP_PANEL_CHANNEL_ID:
+        return None
+    channel = bot.get_channel(config.UPKEEP_PANEL_CHANNEL_ID)
+    if not isinstance(
+        channel,
+        (discord.TextChannel, discord.Thread, discord.VoiceChannel),
+    ):
+        return None
+    return channel
+
+
+async def refresh_upkeep_panel(bot: BeaconBot) -> discord.Message | None:
+    """Обновляет или создаёт сообщение панели Новгорода в канале."""
+    async with _panel_lock:
+        return await _refresh_upkeep_panel_locked(bot)
+
+
+async def _refresh_upkeep_panel_locked(
+    bot: BeaconBot,
+) -> discord.Message | None:
+    channel = _panel_channel(bot)
+    if channel is None and config.UPKEEP_PANEL_CHANNEL_ID:
+        try:
+            fetched = await bot.fetch_channel(config.UPKEEP_PANEL_CHANNEL_ID)
+        except (discord.NotFound, discord.HTTPException) as exc:
+            error_logger.error(
+                f"Канал панели Новгорода недоступен: {exc}",
+                exc_info=True,
+            )
+            return None
+        if not isinstance(
+            fetched,
+            (discord.TextChannel, discord.Thread, discord.VoiceChannel),
+        ):
+            return None
+        channel = fetched
+    if channel is None:
+        return None
+
+    from handlers.views.upkeep_views import UpkeepMenuView
+
+    embed = build_all_upkeep_status_embed()
+    view = UpkeepMenuView()
+    saved = db.get_upkeep_panel()
+
+    if saved is not None:
+        saved_channel_id, message_id = saved
+        if saved_channel_id == config.UPKEEP_PANEL_CHANNEL_ID:
+            try:
+                message = await channel.fetch_message(message_id)
+                await message.edit(embed=embed, view=view)
+                return message
+            except discord.NotFound:
+                db.clear_upkeep_panel()
+            except discord.HTTPException as exc:
+                error_logger.error(
+                    f"Не удалось обновить панель Новгорода: {exc}",
+                    exc_info=True,
+                )
+                return None
+        else:
+            db.clear_upkeep_panel()
+
+    try:
+        message = await channel.send(embed=embed, view=view)
+        db.set_upkeep_panel(config.UPKEEP_PANEL_CHANNEL_ID, message.id)
+        system_logger.info(
+            f"Upkeep panel created in channel "
+            f"{config.UPKEEP_PANEL_CHANNEL_ID} message={message.id}"
+        )
+        return message
+    except discord.HTTPException as exc:
+        error_logger.error(
+            f"Не удалось создать панель Новгорода: {exc}",
+            exc_info=True,
+        )
+        return None
+
+
+async def ensure_upkeep_panel(bot: BeaconBot) -> None:
+    """Регистрирует persistent view и синхронизирует панель при старте."""
+    from handlers.views.upkeep_views import UpkeepMenuView
+
+    if not getattr(bot, "_upkeep_panel_view_registered", False):
+        bot.add_view(UpkeepMenuView())
+        setattr(bot, "_upkeep_panel_view_registered", True)
+    if not config.UPKEEP_PANEL_CHANNEL_ID:
+        system_logger.warning(
+            "UPKEEP_PANEL_CHANNEL_ID не задан — панель Новгорода отключена"
+        )
+        return
+    await refresh_upkeep_panel(bot)
 
 
 def _alert_channel(bot: BeaconBot) -> discord.abc.Messageable | None:
@@ -263,6 +367,7 @@ async def maintain_upkeep(bot: BeaconBot) -> None:
             system_logger.debug(
                 f"Upkeep maintenance completed for {updated} objects"
             )
+        await refresh_upkeep_panel(bot)
     except Exception as exc:
         error_msg = f"Ошибка в maintain_upkeep: {exc}"
         error_logger.error(error_msg, exc_info=True)

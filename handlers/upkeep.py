@@ -21,9 +21,9 @@ def setup(bot: BeaconBot) -> None:
 
     @upkeep.command(
         name="status",
-        description="Статус всех объектов содержания и меню управления",
+        description="Создать или обновить панель Новгорода в канале",
     )
     async def status(interaction: discord.Interaction) -> None:
-        await show_all_upkeep_status(interaction, with_menu=True)
+        await show_all_upkeep_status(interaction)
 
     bot.tree.add_command(upkeep)

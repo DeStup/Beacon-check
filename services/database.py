@@ -145,6 +145,15 @@ def init_db() -> None:
             ON upkeep_objects (name)
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS upkeep_panel (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                channel_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL
+            )
+            """
+        )
 
 
 def list_upkeep_summary() -> list[Row]:
@@ -154,7 +163,7 @@ def list_upkeep_summary() -> list[Row]:
                 """
                 SELECT id, name, silver_per_hour, silver_amount, last_updated
                 FROM upkeep_objects
-                ORDER BY name COLLATE NOCASE
+                ORDER BY id ASC
                 """
             ).fetchall()
         )
@@ -164,7 +173,7 @@ def list_all_upkeep() -> list[Row]:
     with get_connection() as conn:
         return list(
             conn.execute(
-                "SELECT * FROM upkeep_objects ORDER BY name COLLATE NOCASE"
+                "SELECT * FROM upkeep_objects ORDER BY id ASC"
             ).fetchall()
         )
 
@@ -301,6 +310,36 @@ def set_upkeep_low_warning(object_id: int, sent: bool) -> None:
 def fetch_all_upkeep_for_update() -> list[Row]:
     with get_connection() as conn:
         return list(conn.execute("SELECT * FROM upkeep_objects").fetchall())
+
+
+def get_upkeep_panel() -> Optional[tuple[int, int]]:
+    """Возвращает (channel_id, message_id) панели Новгорода или None."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT channel_id, message_id FROM upkeep_panel WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row["channel_id"]), int(row["message_id"])
+
+
+def set_upkeep_panel(channel_id: int, message_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO upkeep_panel (id, channel_id, message_id)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                channel_id = excluded.channel_id,
+                message_id = excluded.message_id
+            """,
+            (channel_id, message_id),
+        )
+
+
+def clear_upkeep_panel() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM upkeep_panel WHERE id = 1")
 
 
 def list_beacons_summary() -> list[Row]:

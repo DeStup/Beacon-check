@@ -32,6 +32,21 @@ ALERT_CHANNEL_ID: int = int(
 )
 # Канал предупреждений по upkeep (серебро)
 UPKEEP_ALERT_CHANNEL_ID: int = int(os.getenv("UPKEEP_ALERT_CHANNEL_ID", "0"))
+# Канал постоянного сообщения «Панель Новгорода»
+UPKEEP_PANEL_CHANNEL_ID: int = int(os.getenv("UPKEEP_PANEL_CHANNEL_ID", "0"))
+
+# Кастомные эмодзи (Discord snowflake ID)
+SILVER_EMOJI_ID: int = int(os.getenv("SILVER_EMOJI_ID", "0"))
+
+
+def custom_emoji(name: str, emoji_id: int) -> str:
+    """Маркер кастомного эмодзи Discord или текстовый fallback."""
+    if emoji_id:
+        return f"<:{name}:{emoji_id}>"
+    return name
+
+
+SILVER_EMOJI: str = custom_emoji("silver", SILVER_EMOJI_ID)
 
 MAX_FUEL: float = 30.0
 MAX_LIFETIME: float = 100.0
