@@ -5,14 +5,20 @@ from __future__ import annotations
 import config
 
 
-def progress_bar(value: float, max_value: float, bar_length: int = 10) -> str:
-    """Полоска прогресса из █ и ░."""
+def progress_bar(
+    value: float,
+    max_value: float,
+    bar_length: int = 10,
+    filled_char: str = "█",
+    empty_char: str = "░",
+) -> str:
+    """Полоска прогресса (по умолчанию █ / ░)."""
     if max_value <= 0:
-        return "░" * bar_length
+        return empty_char * bar_length
     percent = max(0.0, min(100.0, (value / max_value) * 100))
     filled = int(percent / (100 / bar_length))
     filled = max(0, min(bar_length, filled))
-    return "█" * filled + "░" * (bar_length - filled)
+    return filled_char * filled + empty_char * (bar_length - filled)
 
 
 def status_emoji(

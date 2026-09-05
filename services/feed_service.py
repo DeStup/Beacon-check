@@ -115,7 +115,12 @@ def format_feed_status_table(snaps: list[dict[str, Any]]) -> str:
     for snap in snaps:
         emoji = animal_emoji(snap["animal_type"])
         satiety = snap["satiety"]
-        bar = progress_bar(satiety, config.FEED_MAX_SATIETY)
+        bar = progress_bar(
+            satiety,
+            config.FEED_MAX_SATIETY,
+            filled_char="▓",
+            empty_char="░",
+        )
         if snap["is_dead"]:
             status = "💀"
             pct_text = "0%"
