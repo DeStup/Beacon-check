@@ -37,6 +37,8 @@ PANEL_CHANNEL_ID: int = int(
     os.getenv("PANEL_CHANNEL_ID")
     or os.getenv("UPKEEP_PANEL_CHANNEL_ID", "0")
 )
+# Канал уведомлений о смене сезона
+SEASON_ALERT_CHANNEL_ID: int = int(os.getenv("SEASON_ALERT_CHANNEL_ID", "0"))
 
 # Кастомные эмодзи (Discord snowflake ID)
 SILVER_EMOJI_ID: int = int(os.getenv("SILVER_EMOJI_ID", "0"))
@@ -78,6 +80,40 @@ MAX_TIMER_SECONDS: int = 7 * 24 * 60 * 60  # 7 дней
 
 MAX_UPKEEP_NAME_LENGTH: int = 50
 UPKEEP_WARNING_HOURS: float = 3.0
+
+# Сезоны: порядок Lencten → Sumor → Harvest → Winter; война стартует в Harvest
+SEASON_DURATION_HOURS: float = 24.0
+SEASON_DURATION_MINUTES: int = 24 * 60  # 1440
+SEASON_KEYS: tuple[str, ...] = (
+    "lencten",
+    "sumor",
+    "harvest",
+    "winter",
+)
+SEASON_LABELS: dict[str, str] = {
+    "lencten": "Lencten (Весна)",
+    "sumor": "Sumor (Лето)",
+    "harvest": "Harvest (Осень)",
+    "winter": "Winter (Зима)",
+}
+SEASON_EMOJIS: dict[str, str] = {
+    "lencten": "🌱",
+    "sumor": "☀️",
+    "harvest": "🍂",
+    "winter": "❄️",
+}
+SEASON_COLORS: dict[str, int] = {
+    "lencten": 0x57F287,  # green
+    "sumor": 0xFEE75C,  # yellow
+    "harvest": 0xE67E22,  # orange
+    "winter": 0x3498DB,  # blue
+}
+SEASON_WAR_START_KEY: str = "harvest"
+
+# Игровые сутки (реальные минуты): 45 день + 15 ночь
+DAY_CYCLE_MINUTES: int = 60
+DAYLIGHT_MINUTES: int = 45
+NIGHT_MINUTES: int = 15  # DAY_CYCLE_MINUTES - DAYLIGHT_MINUTES
 
 # Пользователи с правом /beacon clear вне админ-прав гильдии
 CLEAR_ALLOWED_USER_IDS: frozenset[int] = frozenset({226751097295994881})

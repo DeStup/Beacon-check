@@ -124,6 +124,25 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS season_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                season_key TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS season_panel (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                channel_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL
+            )
+            """
+        )
 
 
 def list_upkeep_summary() -> list[Row]:
@@ -340,6 +359,63 @@ def set_relic_panel(channel_id: int, message_id: int) -> None:
 def clear_relic_panel() -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM relic_panel WHERE id = 1")
+
+
+def get_season_state() -> Optional[Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM season_state WHERE id = 1"
+        ).fetchone()
+
+
+def set_season_state(season_key: str, started_at: str) -> None:
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO season_state (id, season_key, started_at, updated_at)
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                season_key = excluded.season_key,
+                started_at = excluded.started_at,
+                updated_at = excluded.updated_at
+            """,
+            (season_key, started_at, now),
+        )
+
+
+def clear_season_state() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM season_state WHERE id = 1")
+
+
+def get_season_panel() -> Optional[tuple[int, int]]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT channel_id, message_id FROM season_panel WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row["channel_id"]), int(row["message_id"])
+
+
+def set_season_panel(channel_id: int, message_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO season_panel (id, channel_id, message_id)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                channel_id = excluded.channel_id,
+                message_id = excluded.message_id
+            """,
+            (channel_id, message_id),
+        )
+
+
+def clear_season_panel() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM season_panel WHERE id = 1")
 
 
 def list_beacons_summary() -> list[Row]:
