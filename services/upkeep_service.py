@@ -178,7 +178,7 @@ def build_upkeep_status_embed(
 def build_all_upkeep_status_embed() -> discord.Embed:
     rows = db.list_all_upkeep()
     embed = discord.Embed(
-        title="Панель Новгорода",
+        title="Панель Владений Новгорода",
         color=discord.Color.gold(),
         timestamp=datetime.now(),
     )
@@ -206,7 +206,7 @@ def _panel_channel(
 
 
 async def refresh_upkeep_panel(bot: BeaconBot) -> discord.Message | None:
-    """Обновляет или создаёт сообщение панели Новгорода в канале."""
+    """Обновляет или создаёт сообщение панели Владений Новгорода в канале."""
     async with _panel_lock:
         return await _refresh_upkeep_panel_locked(bot)
 
@@ -220,7 +220,7 @@ async def _refresh_upkeep_panel_locked(
             fetched = await bot.fetch_channel(config.PANEL_CHANNEL_ID)
         except (discord.NotFound, discord.HTTPException) as exc:
             error_logger.error(
-                f"Канал панели Новгорода недоступен: {exc}",
+                f"Канал панели Владений Новгорода недоступен: {exc}",
                 exc_info=True,
             )
             return None
@@ -250,7 +250,7 @@ async def _refresh_upkeep_panel_locked(
                 db.clear_upkeep_panel()
             except discord.HTTPException as exc:
                 error_logger.error(
-                    f"Не удалось обновить панель Новгорода: {exc}",
+                    f"Не удалось обновить панель Владений Новгорода: {exc}",
                     exc_info=True,
                 )
                 return None
@@ -267,7 +267,7 @@ async def _refresh_upkeep_panel_locked(
         return message
     except discord.HTTPException as exc:
         error_logger.error(
-            f"Не удалось создать панель Новгорода: {exc}",
+            f"Не удалось создать панель Владений Новгорода: {exc}",
             exc_info=True,
         )
         return None
@@ -282,7 +282,7 @@ async def ensure_upkeep_panel(bot: BeaconBot) -> None:
         setattr(bot, "_upkeep_panel_view_registered", True)
     if not config.PANEL_CHANNEL_ID:
         system_logger.warning(
-            "PANEL_CHANNEL_ID не задан — панель Новгорода отключена"
+            "PANEL_CHANNEL_ID не задан — панель Владений Новгорода отключена"
         )
         return
     await refresh_upkeep_panel(bot)

@@ -32,7 +32,7 @@ ALERT_CHANNEL_ID: int = int(
 )
 # Канал предупреждений по upkeep (серебро)
 UPKEEP_ALERT_CHANNEL_ID: int = int(os.getenv("UPKEEP_ALERT_CHANNEL_ID", "0"))
-# Канал постоянных панелей (Новгород, реликвия); legacy UPKEEP_PANEL_CHANNEL_ID
+# Канал постоянных панелей (Владения Новгорода, реликвия); legacy UPKEEP_PANEL_CHANNEL_ID
 PANEL_CHANNEL_ID: int = int(
     os.getenv("PANEL_CHANNEL_ID")
     or os.getenv("UPKEEP_PANEL_CHANNEL_ID", "0")
