@@ -282,10 +282,9 @@ async def ensure_feed_panel(bot: BeaconBot) -> None:
 
 
 def _alert_channel(bot: BeaconBot) -> discord.abc.Messageable | None:
-    channel_id = config.FEED_ALERT_CHANNEL_ID or config.UPKEEP_ALERT_CHANNEL_ID
-    if not channel_id:
+    if not config.ALERT_CHANNEL_ID:
         return None
-    return bot.get_channel(channel_id)
+    return bot.get_channel(config.ALERT_CHANNEL_ID)
 
 
 async def _check_feed_alerts(

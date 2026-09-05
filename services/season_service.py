@@ -310,15 +310,15 @@ async def _send_season_alert(
     bot: BeaconBot,
     snap: dict[str, Any],
 ) -> None:
-    if not config.SEASON_ALERT_CHANNEL_ID:
+    if not config.ALERT_CHANNEL_ID:
         return
-    channel = bot.get_channel(config.SEASON_ALERT_CHANNEL_ID)
+    channel = bot.get_channel(config.ALERT_CHANNEL_ID)
     if channel is None:
         try:
-            channel = await bot.fetch_channel(config.SEASON_ALERT_CHANNEL_ID)
+            channel = await bot.fetch_channel(config.ALERT_CHANNEL_ID)
         except (discord.NotFound, discord.HTTPException) as exc:
             error_logger.error(
-                f"Канал SEASON_ALERT_CHANNEL_ID недоступен: {exc}",
+                f"Канал ALERT_CHANNEL_ID недоступен: {exc}",
                 exc_info=True,
             )
             return

@@ -318,9 +318,9 @@ async def ensure_upkeep_panel(bot: BeaconBot) -> None:
 
 
 def _alert_channel(bot: BeaconBot) -> discord.abc.Messageable | None:
-    if not config.UPKEEP_ALERT_CHANNEL_ID:
+    if not config.ALERT_CHANNEL_ID:
         return None
-    return bot.get_channel(config.UPKEEP_ALERT_CHANNEL_ID)
+    return bot.get_channel(config.ALERT_CHANNEL_ID)
 
 
 async def _check_upkeep_alerts(

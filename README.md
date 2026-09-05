@@ -31,11 +31,8 @@ logs/                # actions.log, errors.log
 | `RELIC_CHANNEL_ID` | Канал уведомлений о реликвии |
 | `RELIC_LINK_MESSAGE_ROLES` | Ссылка на сообщение для подписки/отписки на роль уведомлений |
 | `RELIC_QRF_ROLE_ID` | Роль для пинга в предупреждении о реликвии |
-| `ALERT_CHANNEL_ID` | Канал алертов по маякам (или legacy `ALERT_ROLE_ID`) |
-| `UPKEEP_ALERT_CHANNEL_ID` | Канал предупреждений по upkeep (серебро) |
+| `ALERT_CHANNEL_ID` | Единый канал алертов (маяки, upkeep, сытость, сезоны) |
 | `PANEL_CHANNEL_ID` | Канал постоянных панелей (Владения Новгорода, реликвия, сезоны); legacy `UPKEEP_PANEL_CHANNEL_ID` |
-| `SEASON_ALERT_CHANNEL_ID` | Канал уведомлений о смене сезона |
-| `FEED_ALERT_CHANNEL_ID` | Канал предупреждений по рабочим животным |
 | `SILVER_EMOJI_ID` | ID кастомного эмодзи серебра |
 
 ## Локальный запуск

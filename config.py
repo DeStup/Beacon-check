@@ -26,21 +26,13 @@ RELIC_LINK_MESSAGE_ROLES: str = (
 ).strip()
 # Роль для пинга в предупреждении «реликвия скоро появится»
 RELIC_QRF_ROLE_ID: int = int(os.getenv("RELIC_QRF_ROLE_ID", "0"))
-# Канал алертов: ALERT_CHANNEL_ID или legacy ALERT_ROLE_ID в .env
-ALERT_CHANNEL_ID: int = int(
-    os.getenv("ALERT_CHANNEL_ID", os.getenv("ALERT_ROLE_ID", "0"))
-)
-# Канал предупреждений по upkeep (серебро)
-UPKEEP_ALERT_CHANNEL_ID: int = int(os.getenv("UPKEEP_ALERT_CHANNEL_ID", "0"))
+# Единый канал алертов: маяки, upkeep, сытость, смена сезона
+ALERT_CHANNEL_ID: int = int(os.getenv("ALERT_CHANNEL_ID", "0"))
 # Канал постоянных панелей (Владения Новгорода, реликвия); legacy UPKEEP_PANEL_CHANNEL_ID
 PANEL_CHANNEL_ID: int = int(
     os.getenv("PANEL_CHANNEL_ID")
     or os.getenv("UPKEEP_PANEL_CHANNEL_ID", "0")
 )
-# Канал уведомлений о смене сезона
-SEASON_ALERT_CHANNEL_ID: int = int(os.getenv("SEASON_ALERT_CHANNEL_ID", "0"))
-# Канал предупреждений по кормёжке (животные)
-FEED_ALERT_CHANNEL_ID: int = int(os.getenv("FEED_ALERT_CHANNEL_ID", "0"))
 
 # Кастомные эмодзи (Discord snowflake ID)
 SILVER_EMOJI_ID: int = int(os.getenv("SILVER_EMOJI_ID", "0"))
