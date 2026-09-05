@@ -309,10 +309,7 @@ async def _check_feed_alerts(
     if satiety <= 0:
         if not death_notified:
             if channel:
-                verb = "умерла" if animal_type == "horse" else "умер"
-                await channel.send(
-                    f"> 💀 {display} {verb} от голода."
-                )
+                await channel.send(f"> 💀 Голод у {display}.")
             db.set_feed_death_notified(animal_id, True)
             db.set_feed_low_warning(animal_id, True)
             feed_logger.info(f"Feed death notified for {name}")
@@ -323,7 +320,7 @@ async def _check_feed_alerts(
             if channel:
                 pct = int(round(satiety))
                 await channel.send(
-                    f"> ⚠️ Мало сытости у {display} — `{pct}%`"
+                    f"> ⚠️ `{pct}%` сытости у {display}"
                 )
             db.set_feed_low_warning(animal_id, True)
             feed_logger.info(
