@@ -177,17 +177,30 @@ def build_upkeep_status_embed(
 
 def build_all_upkeep_status_embed() -> discord.Embed:
     rows = db.list_all_upkeep()
-    embed = discord.Embed(
-        title="Панель Владений Новгорода",
-        color=discord.Color.gold(),
-        timestamp=datetime.now(),
-    )
     if not rows:
-        embed.description = "📭 Нет объектов содержания"
-        return embed
+        return discord.Embed(
+            title="Панель Владений Новгорода",
+            description="📭 Нет объектов содержания",
+            color=discord.Color.dark_grey(),
+            timestamp=datetime.now(),
+        )
 
     snaps = [snapshot_upkeep(row) for row in rows[:25]]
-    embed.description = format_upkeep_status_table(snaps)
+    has_warning = any(
+        snap["hours_left"] < config.UPKEEP_WARNING_HOURS
+        for snap in snaps
+    )
+    color = (
+        discord.Color.yellow()
+        if has_warning
+        else discord.Color.green()
+    )
+    embed = discord.Embed(
+        title="Панель Владений Новгорода",
+        description=format_upkeep_status_table(snaps),
+        color=color,
+        timestamp=datetime.now(),
+    )
     return embed
 
 
@@ -246,14 +259,20 @@ async def _refresh_upkeep_panel_locked(
                 message = await channel.fetch_message(message_id)
                 await message.edit(embed=embed, view=view)
                 return message
-            except discord.NotFound:
-                db.clear_upkeep_panel()
-            except discord.HTTPException as exc:
-                error_logger.error(
-                    f"Не удалось обновить панель Владений Новгорода: {exc}",
-                    exc_info=True,
-                )
-                return None
+            except Exception as exc:
+                from services.panel_service import is_unknown_message
+
+                if is_unknown_message(exc):
+                    db.clear_upkeep_panel()
+                    system_logger.info(
+                        "Upkeep panel message missing — will recreate"
+                    )
+                else:
+                    error_logger.error(
+                        f"Не удалось обновить панель Владений Новгорода: {exc}",
+                        exc_info=True,
+                    )
+                    return None
         else:
             db.clear_upkeep_panel()
 

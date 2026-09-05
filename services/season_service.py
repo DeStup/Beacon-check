@@ -254,14 +254,20 @@ async def _refresh_season_panel_locked(
                 message = await channel.fetch_message(message_id)
                 await message.edit(embed=embed, view=None)
                 return message
-            except discord.NotFound:
-                db.clear_season_panel()
-            except discord.HTTPException as exc:
-                error_logger.error(
-                    f"Не удалось обновить панель сезонов: {exc}",
-                    exc_info=True,
-                )
-                return None
+            except Exception as exc:
+                from services.panel_service import is_unknown_message
+
+                if is_unknown_message(exc):
+                    db.clear_season_panel()
+                    system_logger.info(
+                        "Season panel message missing — will recreate"
+                    )
+                else:
+                    error_logger.error(
+                        f"Не удалось обновить панель сезонов: {exc}",
+                        exc_info=True,
+                    )
+                    return None
         else:
             db.clear_season_panel()
 

@@ -80,14 +80,20 @@ async def _refresh_relic_panel_locked(
                 message = await channel.fetch_message(message_id)
                 await message.edit(embed=embed, view=view)
                 return message
-            except discord.NotFound:
-                db.clear_relic_panel()
-            except discord.HTTPException as exc:
-                error_logger.error(
-                    f"Не удалось обновить панель реликвии: {exc}",
-                    exc_info=True,
-                )
-                return None
+            except Exception as exc:
+                from services.panel_service import is_unknown_message
+
+                if is_unknown_message(exc):
+                    db.clear_relic_panel()
+                    system_logger.info(
+                        "Relic panel message missing — will recreate"
+                    )
+                else:
+                    error_logger.error(
+                        f"Не удалось обновить панель реликвии: {exc}",
+                        exc_info=True,
+                    )
+                    return None
         else:
             db.clear_relic_panel()
 
@@ -301,6 +307,7 @@ class RelicTimer:
                     f"Relic warning sent to channel ID {self.channel_id} "
                     f"(event_id={event_id})"
                 )
+                await refresh_relic_panel(bot)
 
             wait_until_end = (appear_at - datetime.now()).total_seconds()
             if wait_until_end > 0:

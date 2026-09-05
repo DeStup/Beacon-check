@@ -296,15 +296,26 @@ def build_relic_completed_hold_embed(timer: RelicTimer) -> discord.Embed:
 
 def build_relic_panel_embed(timer: RelicTimer) -> discord.Embed:
     """Embed постоянного сообщения панели реликвии."""
-    if timer.is_active():
-        return build_relic_active_status_embed(
-            None,
-            timer,
-            title="⚔️ Таймер Реликвии",
-        )
     if timer.is_holding():
         return build_relic_completed_hold_embed(timer)
-    return build_relic_inactive_embed(
+
+    if not timer.is_active():
+        return build_relic_inactive_embed(
+            title="⚔️ Таймер Реликвии",
+            hint="Нажмите «Запустить», чтобы задать время до появления",
+        )
+
+    remaining = timer.get_remaining_time()
+    warning_sec = config.RELIC_WARNING_MINUTES * 60
+    if remaining is not None and remaining <= warning_sec:
+        color = discord.Color.yellow()
+    else:
+        color = discord.Color.green()
+
+    embed = build_relic_active_status_embed(
+        None,
+        timer,
         title="⚔️ Таймер Реликвии",
-        hint="Нажмите «Запустить», чтобы задать время до появления",
     )
+    embed.color = color
+    return embed

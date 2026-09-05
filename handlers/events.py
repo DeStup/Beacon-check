@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from services.beacon_service import start_background_tasks
 from services.feed_service import ensure_feed_panel, start_feed_tasks
+from services.panel_service import ensure_all_panels, start_panel_tasks
 from services.relic_service import ensure_relic_panel
 from services.season_service import (
     advance_due_seasons,
@@ -34,3 +35,5 @@ def setup(bot: BeaconBot) -> None:
         await advance_due_seasons(bot)
         await ensure_season_panel(bot)
         await restart_season_watcher(bot)
+        await ensure_all_panels(bot)
+        start_panel_tasks(bot)

@@ -123,10 +123,10 @@ SEASON_EMOJIS: dict[str, str] = {
     "winter": "❄️",
 }
 SEASON_COLORS: dict[str, int] = {
-    "lencten": 0x57F287,  # green
-    "sumor": 0xFEE75C,  # yellow
-    "harvest": 0xE67E22,  # orange
-    "winter": 0x3498DB,  # blue
+    "lencten": 0xFEE75C,  # весна — жёлтый
+    "sumor": 0x57F287,  # лето — зелёный
+    "harvest": 0xED4245,  # осень — красный
+    "winter": 0x3498DB,  # зима — синий
 }
 SEASON_WAR_START_KEY: str = "harvest"
 

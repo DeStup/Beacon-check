@@ -136,16 +136,30 @@ def format_feed_status_table(snaps: list[dict[str, Any]]) -> str:
 
 def build_all_feed_status_embed() -> discord.Embed:
     rows = db.list_all_feed()
+    if not rows:
+        return discord.Embed(
+            title="Панель Сытости Животных",
+            description="📭 Нет животных на мониторинге",
+            color=discord.Color.dark_grey(),
+            timestamp=datetime.now(),
+        )
+
+    snaps = [snapshot_feed(row) for row in rows[:25]]
+    has_warning = any(
+        snap["is_dead"] or snap["satiety"] < config.FEED_WARNING_THRESHOLD
+        for snap in snaps
+    )
+    color = (
+        discord.Color.yellow()
+        if has_warning
+        else discord.Color.green()
+    )
     embed = discord.Embed(
         title="Панель Сытости Животных",
-        color=discord.Color.dark_gold(),
+        description=format_feed_status_table(snaps),
+        color=color,
         timestamp=datetime.now(),
     )
-    if not rows:
-        embed.description = "📭 Нет животных на мониторинге"
-        return embed
-    snaps = [snapshot_feed(row) for row in rows[:25]]
-    embed.description = format_feed_status_table(snaps)
     if len(rows) > 25:
         embed.set_footer(text=f"Показаны первые 25 из {len(rows)}")
     return embed
@@ -205,14 +219,20 @@ async def _refresh_feed_panel_locked(
                 message = await channel.fetch_message(message_id)
                 await message.edit(embed=embed, view=view)
                 return message
-            except discord.NotFound:
-                db.clear_feed_panel()
-            except discord.HTTPException as exc:
-                error_logger.error(
-                    f"Не удалось обновить панель кормёжки: {exc}",
-                    exc_info=True,
-                )
-                return None
+            except Exception as exc:
+                from services.panel_service import is_unknown_message
+
+                if is_unknown_message(exc):
+                    db.clear_feed_panel()
+                    system_logger.info(
+                        "Feed panel message missing — will recreate"
+                    )
+                else:
+                    error_logger.error(
+                        f"Не удалось обновить панель кормёжки: {exc}",
+                        exc_info=True,
+                    )
+                    return None
         else:
             db.clear_feed_panel()
 
