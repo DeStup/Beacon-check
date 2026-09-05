@@ -215,11 +215,13 @@ def build_relic_cancelled_embed(
 
 
 def build_relic_active_status_embed(
-    _channel: discord.abc.Messageable,
+    _channel: discord.abc.Messageable | None,
     timer: RelicTimer,
+    *,
+    title: str = "⏳ Таймер Реликвии активен",
 ) -> discord.Embed:
     embed = discord.Embed(
-        title="⏳ Таймер Реликвии активен",
+        title=title,
         color=discord.Color.green(),
         timestamp=datetime.now(),
     )
@@ -243,15 +245,66 @@ def build_relic_active_status_embed(
     return embed
 
 
-def build_relic_inactive_embed() -> discord.Embed:
+def build_relic_inactive_embed(
+    *,
+    title: str = "❌ Таймер Реликвии не активен",
+    hint: str = "Нажмите «Запустить» на панели или используйте `/relic start`",
+) -> discord.Embed:
     embed = discord.Embed(
-        title="❌ Таймер Реликвии не активен",
+        title=title,
         description="Нет запущенного таймера Реликвии.",
         color=discord.Color.red(),
     )
     embed.add_field(
         name="💡 Запустить таймер Реликвии",
-        value="Используйте команду `/relic start` для запуска таймера",
+        value=hint,
         inline=False,
     )
     return embed
+
+
+def build_relic_completed_hold_embed(timer: RelicTimer) -> discord.Embed:
+    """Панель после появления: таймер ещё виден RELIC_PANEL_HOLD_MINUTES."""
+    embed = discord.Embed(
+        title="⚔️ Таймер Реликвии",
+        description="Реликвия появилась.",
+        color=discord.Color.gold(),
+        timestamp=datetime.now(),
+    )
+    if timer.timer_start_time and timer.timer_duration:
+        appear_time = timer.timer_start_time + timedelta(
+            minutes=timer.timer_duration
+        )
+        unix_timestamp = appear_unix_timestamp_at(appear_time)
+        embed.add_field(
+            name="⏰ Время появления",
+            value=f"<t:{unix_timestamp}:f> (<t:{unix_timestamp}:R>)",
+            inline=False,
+        )
+    hold_until = getattr(timer, "_hold_until", None)
+    if hold_until is not None:
+        hold_unix = appear_unix_timestamp_at(hold_until)
+        embed.add_field(
+            name="🧹 Сброс панели",
+            value=f"<t:{hold_unix}:R>",
+            inline=False,
+        )
+    if timer.started_by:
+        embed.set_footer(text=f"Запустил: {timer.started_by}")
+    return embed
+
+
+def build_relic_panel_embed(timer: RelicTimer) -> discord.Embed:
+    """Embed постоянного сообщения панели реликвии."""
+    if timer.is_active():
+        return build_relic_active_status_embed(
+            None,
+            timer,
+            title="⚔️ Таймер Реликвии",
+        )
+    if timer.is_holding():
+        return build_relic_completed_hold_embed(timer)
+    return build_relic_inactive_embed(
+        title="⚔️ Таймер Реликвии",
+        hint="Нажмите «Запустить», чтобы задать время до появления",
+    )

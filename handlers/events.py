@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from services.beacon_service import start_background_tasks
+from services.relic_service import ensure_relic_panel
 from services.upkeep_service import ensure_upkeep_panel, start_upkeep_tasks
 from utils.logging_setup import system_logger
 
@@ -21,4 +22,4 @@ def setup(bot: BeaconBot) -> None:
         await ensure_upkeep_panel(bot)
         start_upkeep_tasks(bot)
         await bot.relic_timer.restore(bot)
-        await bot.timer_manager.restore_all(bot)
+        await ensure_relic_panel(bot)

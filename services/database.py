@@ -1,4 +1,4 @@
-"""Работа с SQLite."""
+"""Р Р°Р±РѕС‚Р° СЃ SQLite."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ Row = sqlite3.Row
 
 @contextmanager
 def get_connection() -> Generator[sqlite3.Connection, None, None]:
-    """Контекстный менеджер соединения с БД."""
+    """РљРѕРЅС‚РµРєСЃС‚РЅС‹Р№ РјРµРЅРµРґР¶РµСЂ СЃРѕРµРґРёРЅРµРЅРёСЏ СЃ Р‘Р”."""
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(config.DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -29,7 +29,7 @@ def get_connection() -> Generator[sqlite3.Connection, None, None]:
 
 
 def init_db() -> None:
-    """Создаёт таблицы, если их ещё нет."""
+    """РЎРѕР·РґР°С‘С‚ С‚Р°Р±Р»РёС†С‹, РµСЃР»Рё РёС… РµС‰С‘ РЅРµС‚."""
     with get_connection() as conn:
         conn.execute(
             """
@@ -89,45 +89,6 @@ def init_db() -> None:
 
         conn.execute(
             """
-            CREATE TABLE IF NOT EXISTS timers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                trigger_at TEXT NOT NULL,
-                created_by_id INTEGER NOT NULL,
-                created_by_name TEXT NOT NULL,
-                channel_id INTEGER NOT NULL,
-                guild_id INTEGER,
-                warning_minutes INTEGER NOT NULL DEFAULT 5,
-                warning_sent INTEGER NOT NULL DEFAULT 0,
-                status TEXT NOT NULL DEFAULT 'active',
-                ended_at TEXT
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_timers_active
-            ON timers (status, trigger_at)
-            """
-        )
-        timer_columns = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(timers)")
-        }
-        if "warning_minutes" not in timer_columns:
-            conn.execute(
-                "ALTER TABLE timers ADD COLUMN warning_minutes "
-                "INTEGER NOT NULL DEFAULT 5"
-            )
-        if "warning_sent" not in timer_columns:
-            conn.execute(
-                "ALTER TABLE timers ADD COLUMN warning_sent "
-                "INTEGER NOT NULL DEFAULT 0"
-            )
-
-        conn.execute(
-            """
             CREATE TABLE IF NOT EXISTS upkeep_objects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL UNIQUE,
@@ -148,6 +109,15 @@ def init_db() -> None:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS upkeep_panel (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                channel_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS relic_panel (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 channel_id INTEGER NOT NULL,
                 message_id INTEGER NOT NULL
@@ -238,7 +208,7 @@ def delete_upkeep(name: str) -> bool:
 
 
 def clear_all_upkeep() -> list[str]:
-    """Удаляет все объекты upkeep и возвращает список имён."""
+    """РЈРґР°Р»СЏРµС‚ РІСЃРµ РѕР±СЉРµРєС‚С‹ upkeep Рё РІРѕР·РІСЂР°С‰Р°РµС‚ СЃРїРёСЃРѕРє РёРјС‘РЅ."""
     with get_connection() as conn:
         rows = conn.execute("SELECT name FROM upkeep_objects").fetchall()
         names = [row["name"] for row in rows]
@@ -313,7 +283,7 @@ def fetch_all_upkeep_for_update() -> list[Row]:
 
 
 def get_upkeep_panel() -> Optional[tuple[int, int]]:
-    """Возвращает (channel_id, message_id) панели Новгорода или None."""
+    """Р’РѕР·РІСЂР°С‰Р°РµС‚ (channel_id, message_id) РїР°РЅРµР»Рё РќРѕРІРіРѕСЂРѕРґР° РёР»Рё None."""
     with get_connection() as conn:
         row = conn.execute(
             "SELECT channel_id, message_id FROM upkeep_panel WHERE id = 1"
@@ -340,6 +310,36 @@ def set_upkeep_panel(channel_id: int, message_id: int) -> None:
 def clear_upkeep_panel() -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM upkeep_panel WHERE id = 1")
+
+
+def get_relic_panel() -> Optional[tuple[int, int]]:
+    """Возвращает (channel_id, message_id) панели реликвии или None."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT channel_id, message_id FROM relic_panel WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row["channel_id"]), int(row["message_id"])
+
+
+def set_relic_panel(channel_id: int, message_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO relic_panel (id, channel_id, message_id)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                channel_id = excluded.channel_id,
+                message_id = excluded.message_id
+            """,
+            (channel_id, message_id),
+        )
+
+
+def clear_relic_panel() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM relic_panel WHERE id = 1")
 
 
 def list_beacons_summary() -> list[Row]:
@@ -417,7 +417,7 @@ def delete_beacon(beacon_id: str) -> bool:
 
 
 def clear_all_beacons() -> list[str]:
-    """Удаляет все маяки и возвращает список удалённых ID."""
+    """РЈРґР°Р»СЏРµС‚ РІСЃРµ РјР°СЏРєРё Рё РІРѕР·РІСЂР°С‰Р°РµС‚ СЃРїРёСЃРѕРє СѓРґР°Р»С‘РЅРЅС‹С… ID."""
     with get_connection() as conn:
         rows = conn.execute(
             """
@@ -436,7 +436,7 @@ def update_beacon_fields(
     updates: dict[str, Any],
     low_status_sent: Optional[bool] = None,
 ) -> bool:
-    """Обновляет поля маяка. Ключи — имена колонок."""
+    """РћР±РЅРѕРІР»СЏРµС‚ РїРѕР»СЏ РјР°СЏРєР°. РљР»СЋС‡Рё вЂ” РёРјРµРЅР° РєРѕР»РѕРЅРѕРє."""
     if not updates and low_status_sent is None:
         return False
 
@@ -463,7 +463,7 @@ def refuel_beacon(
     beacon_id: str,
     amount: float,
 ) -> Optional[dict[str, Any]]:
-    """Добавляет топливо. Возвращает dict с результатом или None если не найден."""
+    """Р”РѕР±Р°РІР»СЏРµС‚ С‚РѕРїР»РёРІРѕ. Р’РѕР·РІСЂР°С‰Р°РµС‚ dict СЃ СЂРµР·СѓР»СЊС‚Р°С‚РѕРј РёР»Рё None РµСЃР»Рё РЅРµ РЅР°Р№РґРµРЅ."""
     with get_connection() as conn:
         row = conn.execute(
             """
@@ -511,7 +511,7 @@ def increment_user_stat(
     username: str,
     stat: str,
 ) -> None:
-    """Увеличивает created / refueled / repaired на 1."""
+    """РЈРІРµР»РёС‡РёРІР°РµС‚ created / refueled / repaired РЅР° 1."""
     if stat not in {"created", "refueled", "repaired"}:
         raise ValueError(f"Unknown user stat: {stat}")
 
@@ -595,7 +595,7 @@ def create_relic_event(
     duration_minutes: int,
     started_by: Optional[str] = None,
 ) -> int:
-    """Создаёт активное событие; предыдущие active для канала закрывает как cancelled."""
+    """РЎРѕР·РґР°С‘С‚ Р°РєС‚РёРІРЅРѕРµ СЃРѕР±С‹С‚РёРµ; РїСЂРµРґС‹РґСѓС‰РёРµ active РґР»СЏ РєР°РЅР°Р»Р° Р·Р°РєСЂС‹РІР°РµС‚ РєР°Рє cancelled."""
     with get_connection() as conn:
         now = datetime.now().isoformat()
         conn.execute(
@@ -646,7 +646,7 @@ def finish_relic_event(event_id: int, status: str) -> None:
 
 
 def cancel_active_relic_event(channel_id: int) -> bool:
-    """Отменяет активное событие канала. True если было что отменять."""
+    """РћС‚РјРµРЅСЏРµС‚ Р°РєС‚РёРІРЅРѕРµ СЃРѕР±С‹С‚РёРµ РєР°РЅР°Р»Р°. True РµСЃР»Рё Р±С‹Р»Рѕ С‡С‚Рѕ РѕС‚РјРµРЅСЏС‚СЊ."""
     with get_connection() as conn:
         cursor = conn.execute(
             """
@@ -658,93 +658,3 @@ def cancel_active_relic_event(channel_id: int) -> bool:
         )
         return cursor.rowcount > 0
 
-
-# --- timers ---
-
-
-def create_timer(
-    *,
-    name: str,
-    created_at: datetime,
-    trigger_at: datetime,
-    created_by_id: int,
-    created_by_name: str,
-    channel_id: int,
-    warning_minutes: int,
-    guild_id: Optional[int] = None,
-) -> int:
-    with get_connection() as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO timers (
-                name, created_at, trigger_at,
-                created_by_id, created_by_name,
-                channel_id, guild_id, warning_minutes,
-                warning_sent, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'active')
-            """,
-            (
-                name,
-                created_at.isoformat(),
-                trigger_at.isoformat(),
-                created_by_id,
-                created_by_name,
-                channel_id,
-                guild_id,
-                warning_minutes,
-            ),
-        )
-        return int(cursor.lastrowid)
-
-
-def get_timer(timer_id: int) -> Optional[Row]:
-    with get_connection() as conn:
-        return conn.execute(
-            "SELECT * FROM timers WHERE id = ?",
-            (timer_id,),
-        ).fetchone()
-
-
-def list_active_timers() -> list[Row]:
-    with get_connection() as conn:
-        return list(
-            conn.execute(
-                """
-                SELECT * FROM timers
-                WHERE status = 'active'
-                ORDER BY trigger_at ASC
-                """
-            ).fetchall()
-        )
-
-
-def set_timer_warning_sent(timer_id: int) -> None:
-    with get_connection() as conn:
-        conn.execute(
-            """
-            UPDATE timers
-            SET warning_sent = 1
-            WHERE id = ? AND status = 'active'
-            """,
-            (timer_id,),
-        )
-
-
-def finish_timer(timer_id: int, status: str) -> bool:
-    """status: completed | cancelled."""
-    if status not in {"completed", "cancelled"}:
-        raise ValueError(f"Invalid timer status: {status}")
-    with get_connection() as conn:
-        cursor = conn.execute(
-            """
-            UPDATE timers
-            SET status = ?, ended_at = ?
-            WHERE id = ? AND status = 'active'
-            """,
-            (status, datetime.now().isoformat(), timer_id),
-        )
-        return cursor.rowcount > 0
-
-
-def cancel_timer(timer_id: int) -> bool:
-    return finish_timer(timer_id, "cancelled")

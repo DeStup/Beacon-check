@@ -1,7 +1,6 @@
-"""Сервисный слой: БД, маяки, реликвии, таймеры."""
+"""Сервисный слой: БД, маяки, реликвии, upkeep."""
 
 from services.database import init_db
 from services.relic_service import RelicTimer
-from services.timer_service import TimerManager
 
-__all__ = ["RelicTimer", "TimerManager", "init_db"]
+__all__ = ["RelicTimer", "init_db"]

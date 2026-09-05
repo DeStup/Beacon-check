@@ -7,11 +7,10 @@ from discord import app_commands
 
 import config
 from services.relic_service import RelicTimer
-from services.timer_service import TimerManager
 
 
 class BeaconBot(discord.Client):
-    """Клиент со slash CommandTree, реликвией и пользовательскими таймерами."""
+    """Клиент со slash CommandTree и таймером реликвии."""
 
     def __init__(self) -> None:
         intents = discord.Intents.default()
@@ -19,7 +18,6 @@ class BeaconBot(discord.Client):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         self.relic_timer = RelicTimer(config.RELIC_CHANNEL_ID)
-        self.timer_manager = TimerManager()
 
     async def setup_hook(self) -> None:
         from handlers import setup as setup_handlers

@@ -36,10 +36,3 @@ def is_moderator(user: discord.abc.User) -> bool:
             or perms.manage_messages
         )
     return False
-
-
-def can_cancel_timer(user: discord.abc.User, created_by_id: int) -> bool:
-    """Создатель таймера или модератор."""
-    if user.id == created_by_id:
-        return True
-    return is_moderator(user)

@@ -33,7 +33,7 @@ logs/                # actions.log, errors.log
 | `RELIC_QRF_ROLE_ID` | Роль для пинга в предупреждении о реликвии |
 | `ALERT_CHANNEL_ID` | Канал алертов по маякам (или legacy `ALERT_ROLE_ID`) |
 | `UPKEEP_ALERT_CHANNEL_ID` | Канал предупреждений по upkeep (серебро) |
-| `UPKEEP_PANEL_CHANNEL_ID` | Канал постоянного сообщения «Панель Новгорода» |
+| `PANEL_CHANNEL_ID` | Канал постоянных панелей (Новгород, реликвия); legacy `UPKEEP_PANEL_CHANNEL_ID` |
 | `SILVER_EMOJI_ID` | ID кастомного эмодзи серебра |
 
 ## Локальный запуск
@@ -58,10 +58,9 @@ docker compose up -d
 
 - `/beacon add|menu|refuel|status|edit|delete|clear`
 - `/relic start|cancel|status`
-- `/timer add|status`
 - `/help` `/ping`
 
 ## Логи
 
-- `logs/actions.log` — `beacon_actions`, `relic_actions`, `timer_actions`, `upkeep_actions`, `system`
+- `logs/actions.log` — `beacon_actions`, `relic_actions`, `upkeep_actions`, `system`
 - `logs/errors.log` — ошибки

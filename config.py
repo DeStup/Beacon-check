@@ -32,8 +32,11 @@ ALERT_CHANNEL_ID: int = int(
 )
 # Канал предупреждений по upkeep (серебро)
 UPKEEP_ALERT_CHANNEL_ID: int = int(os.getenv("UPKEEP_ALERT_CHANNEL_ID", "0"))
-# Канал постоянного сообщения «Панель Новгорода»
-UPKEEP_PANEL_CHANNEL_ID: int = int(os.getenv("UPKEEP_PANEL_CHANNEL_ID", "0"))
+# Канал постоянных панелей (Новгород, реликвия); legacy UPKEEP_PANEL_CHANNEL_ID
+PANEL_CHANNEL_ID: int = int(
+    os.getenv("PANEL_CHANNEL_ID")
+    or os.getenv("UPKEEP_PANEL_CHANNEL_ID", "0")
+)
 
 # Кастомные эмодзи (Discord snowflake ID)
 SILVER_EMOJI_ID: int = int(os.getenv("SILVER_EMOJI_ID", "0"))
@@ -67,6 +70,8 @@ CRITICAL_THRESHOLD: float = 5.0
 DEFAULT_RELIC_MINUTES: int = 90
 MAX_RELIC_MINUTES: int = 1440
 RELIC_WARNING_MINUTES: int = 10
+# Сколько минут после появления реликвии держать таймер на панели
+RELIC_PANEL_HOLD_MINUTES: int = 5
 
 MAX_TIMER_NAME_LENGTH: int = 50
 MAX_TIMER_SECONDS: int = 7 * 24 * 60 * 60  # 7 дней

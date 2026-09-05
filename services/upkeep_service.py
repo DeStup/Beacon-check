@@ -194,9 +194,9 @@ def build_all_upkeep_status_embed() -> discord.Embed:
 def _panel_channel(
     bot: BeaconBot,
 ) -> discord.TextChannel | discord.Thread | discord.VoiceChannel | None:
-    if not config.UPKEEP_PANEL_CHANNEL_ID:
+    if not config.PANEL_CHANNEL_ID:
         return None
-    channel = bot.get_channel(config.UPKEEP_PANEL_CHANNEL_ID)
+    channel = bot.get_channel(config.PANEL_CHANNEL_ID)
     if not isinstance(
         channel,
         (discord.TextChannel, discord.Thread, discord.VoiceChannel),
@@ -215,9 +215,9 @@ async def _refresh_upkeep_panel_locked(
     bot: BeaconBot,
 ) -> discord.Message | None:
     channel = _panel_channel(bot)
-    if channel is None and config.UPKEEP_PANEL_CHANNEL_ID:
+    if channel is None and config.PANEL_CHANNEL_ID:
         try:
-            fetched = await bot.fetch_channel(config.UPKEEP_PANEL_CHANNEL_ID)
+            fetched = await bot.fetch_channel(config.PANEL_CHANNEL_ID)
         except (discord.NotFound, discord.HTTPException) as exc:
             error_logger.error(
                 f"Канал панели Новгорода недоступен: {exc}",
@@ -241,7 +241,7 @@ async def _refresh_upkeep_panel_locked(
 
     if saved is not None:
         saved_channel_id, message_id = saved
-        if saved_channel_id == config.UPKEEP_PANEL_CHANNEL_ID:
+        if saved_channel_id == config.PANEL_CHANNEL_ID:
             try:
                 message = await channel.fetch_message(message_id)
                 await message.edit(embed=embed, view=view)
@@ -259,10 +259,10 @@ async def _refresh_upkeep_panel_locked(
 
     try:
         message = await channel.send(embed=embed, view=view)
-        db.set_upkeep_panel(config.UPKEEP_PANEL_CHANNEL_ID, message.id)
+        db.set_upkeep_panel(config.PANEL_CHANNEL_ID, message.id)
         system_logger.info(
             f"Upkeep panel created in channel "
-            f"{config.UPKEEP_PANEL_CHANNEL_ID} message={message.id}"
+            f"{config.PANEL_CHANNEL_ID} message={message.id}"
         )
         return message
     except discord.HTTPException as exc:
@@ -280,9 +280,9 @@ async def ensure_upkeep_panel(bot: BeaconBot) -> None:
     if not getattr(bot, "_upkeep_panel_view_registered", False):
         bot.add_view(UpkeepMenuView())
         setattr(bot, "_upkeep_panel_view_registered", True)
-    if not config.UPKEEP_PANEL_CHANNEL_ID:
+    if not config.PANEL_CHANNEL_ID:
         system_logger.warning(
-            "UPKEEP_PANEL_CHANNEL_ID не задан — панель Новгорода отключена"
+            "PANEL_CHANNEL_ID не задан — панель Новгорода отключена"
         )
         return
     await refresh_upkeep_panel(bot)

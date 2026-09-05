@@ -38,14 +38,6 @@ def priority_emoji(rate: float) -> str:
     return "🟢"
 
 
-def format_duration_minutes(minutes: int) -> str:
-    """Человекочитаемая длительность из минут."""
-    hours, mins = divmod(minutes, 60)
-    if hours > 0:
-        return f"{hours} ч {mins} мин"
-    return f"{mins} мин"
-
-
 def format_duration_hours(hours: float) -> str:
     """Человекочитаемая длительность из дробных часов (напр. 3д 11ч 10м)."""
     if hours <= 0:

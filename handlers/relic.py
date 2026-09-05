@@ -167,10 +167,13 @@ def setup(bot: BeaconBot) -> None:
                     if timer.cancel_timer(
                         user_info=get_user_info(btn_interaction),
                     ):
+                        from services.relic_service import refresh_relic_panel
+
                         await btn_interaction.response.edit_message(
                             embed=build_relic_cancelled_embed(),
                             view=None,
                         )
+                        await refresh_relic_panel(bot)
                     else:
                         await btn_interaction.response.edit_message(
                             content="❌ Таймер не найден или уже завершен.",
@@ -234,10 +237,13 @@ def setup(bot: BeaconBot) -> None:
             return
 
         if bot.relic_timer.cancel_timer(user_info=user_info):
+            from services.relic_service import refresh_relic_panel
+
             embed = build_relic_cancelled_embed(
                 "Таймер появления реликвии был успешно отменен."
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
+            await refresh_relic_panel(bot)
         else:
             await interaction.response.send_message(
                 "❌ Нет активного таймера реликвии.",
