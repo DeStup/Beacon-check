@@ -39,6 +39,8 @@ PANEL_CHANNEL_ID: int = int(
 )
 # Канал уведомлений о смене сезона
 SEASON_ALERT_CHANNEL_ID: int = int(os.getenv("SEASON_ALERT_CHANNEL_ID", "0"))
+# Канал предупреждений по кормёжке (животные)
+FEED_ALERT_CHANNEL_ID: int = int(os.getenv("FEED_ALERT_CHANNEL_ID", "0"))
 
 # Кастомные эмодзи (Discord snowflake ID)
 SILVER_EMOJI_ID: int = int(os.getenv("SILVER_EMOJI_ID", "0"))
@@ -80,6 +82,24 @@ MAX_TIMER_SECONDS: int = 7 * 24 * 60 * 60  # 7 дней
 
 MAX_UPKEEP_NAME_LENGTH: int = 50
 UPKEEP_WARNING_HOURS: float = 3.0
+
+# Кормёжка: животные
+MAX_FEED_NAME_LENGTH: int = 50
+FEED_MAX_SATIETY: float = 100.0
+FEED_WARNING_THRESHOLD: float = 20.0
+# Часы до полной потери сытости с 100%
+FEED_ANIMAL_HOURS_TO_EMPTY: dict[str, float] = {
+    "horse": 1.5,
+    "donkey": 3.0,
+}
+FEED_ANIMAL_LABELS: dict[str, str] = {
+    "horse": "Лошадь",
+    "donkey": "Осёл",
+}
+FEED_ANIMAL_EMOJIS: dict[str, str] = {
+    "horse": "🐴",
+    "donkey": "🫏",
+}
 
 # Сезоны: порядок Lencten → Sumor → Harvest → Winter; война стартует в Harvest
 SEASON_DURATION_HOURS: float = 24.0

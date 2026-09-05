@@ -35,6 +35,7 @@ logs/                # actions.log, errors.log
 | `UPKEEP_ALERT_CHANNEL_ID` | Канал предупреждений по upkeep (серебро) |
 | `PANEL_CHANNEL_ID` | Канал постоянных панелей (Владения Новгорода, реликвия, сезоны); legacy `UPKEEP_PANEL_CHANNEL_ID` |
 | `SEASON_ALERT_CHANNEL_ID` | Канал уведомлений о смене сезона |
+| `FEED_ALERT_CHANNEL_ID` | Канал предупреждений по рабочим животным |
 | `SILVER_EMOJI_ID` | ID кастомного эмодзи серебра |
 
 ## Локальный запуск
@@ -64,5 +65,5 @@ docker compose up -d
 
 ## Логи
 
-- `logs/actions.log` — `beacon_actions`, `relic_actions`, `upkeep_actions`, `season_actions`, `system`
+- `logs/actions.log` — `beacon_actions`, `relic_actions`, `upkeep_actions`, `season_actions`, `feed_actions`, `system`
 - `logs/errors.log` — ошибки

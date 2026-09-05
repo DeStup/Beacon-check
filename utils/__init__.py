@@ -11,6 +11,7 @@ from utils.formatting import (
 from utils.logging_setup import (
     action_logger,
     error_logger,
+    feed_logger,
     relic_logger,
     season_logger,
     setup_logging,
@@ -28,6 +29,7 @@ __all__ = [
     "can_clear_beacons",
     "can_manage_upkeep",
     "error_logger",
+    "feed_logger",
     "format_duration_hours",
     "format_priority",
     "get_user_info",

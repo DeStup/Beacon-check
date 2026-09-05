@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from services.beacon_service import start_background_tasks
+from services.feed_service import ensure_feed_panel, start_feed_tasks
 from services.relic_service import ensure_relic_panel
 from services.season_service import (
     advance_due_seasons,
@@ -26,6 +27,8 @@ def setup(bot: BeaconBot) -> None:
         start_background_tasks(bot)
         await ensure_upkeep_panel(bot)
         start_upkeep_tasks(bot)
+        await ensure_feed_panel(bot)
+        start_feed_tasks(bot)
         await bot.relic_timer.restore(bot)
         await ensure_relic_panel(bot)
         await advance_due_seasons(bot)

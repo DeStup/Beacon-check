@@ -143,6 +143,35 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS feed_animals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                animal_type TEXT NOT NULL,
+                satiety REAL NOT NULL,
+                last_updated TEXT NOT NULL,
+                low_warning_sent INTEGER NOT NULL DEFAULT 0,
+                death_notified INTEGER NOT NULL DEFAULT 0,
+                created_by TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_feed_animals_name
+            ON feed_animals (name)
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS feed_panel (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                channel_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL
+            )
+            """
+        )
 
 
 def list_upkeep_summary() -> list[Row]:
@@ -416,6 +445,206 @@ def set_season_panel(channel_id: int, message_id: int) -> None:
 def clear_season_panel() -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM season_panel WHERE id = 1")
+
+
+# --- feed (кормёжка) ---
+
+
+def list_feed_summary() -> list[Row]:
+    with get_connection() as conn:
+        return list(
+            conn.execute(
+                """
+                SELECT id, name, animal_type, satiety, last_updated
+                FROM feed_animals
+                ORDER BY id ASC
+                """
+            ).fetchall()
+        )
+
+
+def list_all_feed() -> list[Row]:
+    with get_connection() as conn:
+        return list(
+            conn.execute(
+                "SELECT * FROM feed_animals ORDER BY id ASC"
+            ).fetchall()
+        )
+
+
+def get_feed_by_name(name: str) -> Optional[Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM feed_animals WHERE name = ?",
+            (name,),
+        ).fetchone()
+
+
+def get_feed_by_id(animal_id: int) -> Optional[Row]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT * FROM feed_animals WHERE id = ?",
+            (animal_id,),
+        ).fetchone()
+
+
+def feed_exists(name: str) -> bool:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM feed_animals WHERE name = ? LIMIT 1",
+            (name,),
+        ).fetchone()
+        return row is not None
+
+
+def insert_feed(
+    *,
+    name: str,
+    animal_type: str,
+    satiety: float,
+    created_by: Optional[str] = None,
+) -> int:
+    now = datetime.now().isoformat()
+    with get_connection() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO feed_animals (
+                name, animal_type, satiety, last_updated,
+                low_warning_sent, death_notified, created_by
+            ) VALUES (?, ?, ?, ?, 0, 0, ?)
+            """,
+            (name, animal_type, satiety, now, created_by),
+        )
+        return int(cursor.lastrowid)
+
+
+def update_feed(
+    animal_id: int,
+    *,
+    name: Optional[str] = None,
+    animal_type: Optional[str] = None,
+    satiety: Optional[float] = None,
+    last_updated: Optional[str] = None,
+    low_warning_sent: Optional[bool] = None,
+    death_notified: Optional[bool] = None,
+) -> None:
+    set_parts: list[str] = []
+    params: list[Any] = []
+    if name is not None:
+        set_parts.append("name = ?")
+        params.append(name)
+    if animal_type is not None:
+        set_parts.append("animal_type = ?")
+        params.append(animal_type)
+    if satiety is not None:
+        set_parts.append("satiety = ?")
+        params.append(satiety)
+    if last_updated is not None:
+        set_parts.append("last_updated = ?")
+        params.append(last_updated)
+    if low_warning_sent is not None:
+        set_parts.append("low_warning_sent = ?")
+        params.append(1 if low_warning_sent else 0)
+    if death_notified is not None:
+        set_parts.append("death_notified = ?")
+        params.append(1 if death_notified else 0)
+    if not set_parts:
+        return
+    params.append(animal_id)
+    with get_connection() as conn:
+        conn.execute(
+            f"UPDATE feed_animals SET {', '.join(set_parts)} WHERE id = ?",
+            params,
+        )
+
+
+def apply_feed_decay_update(
+    animal_id: int,
+    satiety: float,
+    last_updated: str,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE feed_animals
+            SET satiety = ?, last_updated = ?
+            WHERE id = ?
+            """,
+            (satiety, last_updated, animal_id),
+        )
+
+
+def set_feed_low_warning(animal_id: int, sent: bool) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE feed_animals
+            SET low_warning_sent = ?
+            WHERE id = ?
+            """,
+            (1 if sent else 0, animal_id),
+        )
+
+
+def set_feed_death_notified(animal_id: int, sent: bool) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE feed_animals
+            SET death_notified = ?
+            WHERE id = ?
+            """,
+            (1 if sent else 0, animal_id),
+        )
+
+
+def delete_feed(name: str) -> bool:
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "DELETE FROM feed_animals WHERE name = ?",
+            (name,),
+        )
+        return cursor.rowcount > 0
+
+
+def clear_all_feed() -> int:
+    with get_connection() as conn:
+        cursor = conn.execute("DELETE FROM feed_animals")
+        return cursor.rowcount
+
+
+def fetch_all_feed_for_update() -> list[Row]:
+    with get_connection() as conn:
+        return list(conn.execute("SELECT * FROM feed_animals").fetchall())
+
+
+def get_feed_panel() -> Optional[tuple[int, int]]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT channel_id, message_id FROM feed_panel WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row["channel_id"]), int(row["message_id"])
+
+
+def set_feed_panel(channel_id: int, message_id: int) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO feed_panel (id, channel_id, message_id)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                channel_id = excluded.channel_id,
+                message_id = excluded.message_id
+            """,
+            (channel_id, message_id),
+        )
+
+
+def clear_feed_panel() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM feed_panel WHERE id = 1")
 
 
 def list_beacons_summary() -> list[Row]:

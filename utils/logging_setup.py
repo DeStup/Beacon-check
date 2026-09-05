@@ -15,8 +15,9 @@ def setup_logging() -> tuple[
     logging.Logger,
     logging.Logger,
     logging.Logger,
+    logging.Logger,
 ]:
-    """Возвращает (action, error, relic, system, upkeep, season) loggers."""
+    """Возвращает (action, error, relic, system, upkeep, season, feed)."""
     config.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     formatter = logging.Formatter(
@@ -28,6 +29,7 @@ def setup_logging() -> tuple[
     relic = logging.getLogger("relic_actions")
     upkeep = logging.getLogger("upkeep_actions")
     season = logging.getLogger("season_actions")
+    feed = logging.getLogger("feed_actions")
     system = logging.getLogger("system")
     errors = logging.getLogger("beacon_errors")
 
@@ -42,12 +44,12 @@ def setup_logging() -> tuple[
         action.addHandler(action_handler)
         action.setLevel(logging.INFO)
 
-        for logger in (relic, upkeep, season, system):
+        for logger in (relic, upkeep, season, feed, system):
             logger.addHandler(action_handler)
             logger.setLevel(logging.INFO)
     else:
         shared = action.handlers[0]
-        for logger in (upkeep, season):
+        for logger in (upkeep, season, feed):
             if not logger.handlers:
                 logger.addHandler(shared)
                 logger.setLevel(logging.INFO)
@@ -63,7 +65,7 @@ def setup_logging() -> tuple[
         errors.addHandler(error_handler)
         errors.setLevel(logging.ERROR)
 
-    return action, errors, relic, system, upkeep, season
+    return action, errors, relic, system, upkeep, season, feed
 
 
 (
@@ -73,4 +75,5 @@ def setup_logging() -> tuple[
     system_logger,
     upkeep_logger,
     season_logger,
+    feed_logger,
 ) = setup_logging()
