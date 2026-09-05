@@ -10,9 +10,10 @@ from discord import app_commands
 
 import config
 from handlers.views.clear import prompt_clear_all_beacons
-from handlers.views.menu import BeaconMenuView, open_beacon_select
+from handlers.views.menu import open_beacon_select
 from services import database as db
-from utils.formatting import format_priority, get_user_info, rate_from_priority
+from services.beacon_service import get_beacon_panel_thread, refresh_beacon_panel
+from utils.formatting import get_user_info, rate_from_priority
 from utils.logging_setup import action_logger, error_logger
 
 if TYPE_CHECKING:
@@ -28,7 +29,7 @@ def setup(bot: BeaconBot) -> None:
     @beacon.command(name="add", description="Добавить новый маяк")
     @app_commands.describe(
         beacon_id="ID маяка (например: NG-01)",
-        priority="Приоритет маяка (1 - высокий, 2 - средний, 3 - низкий)",
+        priority="Тип маяка (Фронтовой / Тыловой)",
         fuel="Количество топлива (0-30, оставьте пустым для полного бака)",
         lifetime="Прочность в процентах (0-100, оставьте пустым для полной прочности)",
         image="Изображение маяка (обязательно! Перетащите или нажмите для загрузки)",
@@ -36,16 +37,12 @@ def setup(bot: BeaconBot) -> None:
     @app_commands.choices(
         priority=[
             app_commands.Choice(
-                name="🔴 1 - Высокий (быстрый расход топлива)",
-                value=1,
+                name="Фронтовой (быстрый расход топлива)",
+                value=config.BEACON_TYPE_FRONT,
             ),
             app_commands.Choice(
-                name="🟡 2 - Средний (стандартный расход)",
-                value=2,
-            ),
-            app_commands.Choice(
-                name="🟢 3 - Низкий (экономный расход)",
-                value=3,
+                name="Тыловой (обычный)",
+                value=config.BEACON_TYPE_REAR,
             ),
         ]
     )
@@ -129,38 +126,30 @@ def setup(bot: BeaconBot) -> None:
         user_id = str(interaction.user.id)
         username = interaction.user.name
         rate = rate_from_priority(priority.value)
-        priority_text = format_priority(rate)
 
         try:
-            embed = discord.Embed(
-                title="✅ Добавлен маяк",
-                description=f"**{beacon_id}**",
-                color=discord.Color.green(),
-            )
-            embed.add_field(
-                name="🔋 Топливо",
-                value=f"{current_fuel:.1f}/{config.MAX_FUEL}",
-            )
-            embed.add_field(
-                name="🔄 Прочность",
-                value=f"{current_lifetime:.1f}%",
-            )
-            embed.add_field(name="📊 Приоритет", value=priority_text)
-            embed.add_field(
-                name="",
-                value=f"Добавил: {interaction.user.mention}",
-                inline=False,
-            )
-            embed.set_image(url=image.url)
+            await interaction.response.defer(ephemeral=True)
 
-            if not interaction.channel:
-                await interaction.response.send_message(
-                    "❌ Не удалось определить канал!",
+            bot = interaction.client
+            thread = await get_beacon_panel_thread(bot)  # type: ignore[arg-type]
+            if thread is None:
+                await interaction.followup.send(
+                    "❌ Панель маяков недоступна "
+                    "(проверьте PANEL_CHANNEL_ID и права бота на ветки).",
                     ephemeral=True,
                 )
                 return
 
-            sent_message = await interaction.channel.send(embed=embed)
+            embed = discord.Embed(
+                title=beacon_id,
+                color=discord.Color.green(),
+            )
+
+            filename = image.filename or "beacon.png"
+            file = await image.to_file(filename=filename)
+            embed.set_image(url=f"attachment://{filename}")
+
+            sent_message = await thread.send(embed=embed, file=file)
             db.insert_beacon(
                 beacon_id=beacon_id,
                 current_fuel=current_fuel,
@@ -170,15 +159,18 @@ def setup(bot: BeaconBot) -> None:
                 username=username,
             )
             db.increment_user_stat(user_id, username, "created")
+            await refresh_beacon_panel(bot)  # type: ignore[arg-type]
 
             action_logger.info(
                 f"{user_info} added beacon {beacon_id} | "
                 f"Fuel: {current_fuel}/{config.MAX_FUEL}, "
-                f"Lifetime: {current_lifetime}%, Priority: {priority.value}"
+                f"Lifetime: {current_lifetime}%, Priority: {priority.value} | "
+                f"thread={thread.id} message={sent_message.id}"
             )
 
-            await interaction.response.send_message(
-                f"✅ Маяк {beacon_id} успешно добавлен с изображением!",
+            await interaction.followup.send(
+                f"✅ Маяк {beacon_id} добавлен. "
+                f"Изображение локации — в ветке панели.",
                 ephemeral=True,
             )
 
@@ -186,7 +178,12 @@ def setup(bot: BeaconBot) -> None:
             action_logger.warning(
                 f"{user_info} duplicate beacon {beacon_id} (integrity constraint)"
             )
-            await interaction.response.send_message(
+            send = (
+                interaction.followup.send
+                if interaction.response.is_done()
+                else interaction.response.send_message
+            )
+            await send(
                 f"❌ Маяк {beacon_id} уже существует!",
                 ephemeral=True,
             )
@@ -195,58 +192,12 @@ def setup(bot: BeaconBot) -> None:
                 f"{user_info} Ошибка при создании маяка: {exc}",
                 exc_info=True,
             )
-            await interaction.response.send_message(
-                f"❌ Ошибка: {exc}",
-                ephemeral=True,
+            send = (
+                interaction.followup.send
+                if interaction.response.is_done()
+                else interaction.response.send_message
             )
-
-    @beacon.command(name="menu", description="Показать меню управления маяками")
-    async def menu(interaction: discord.Interaction) -> None:
-        embed = discord.Embed(
-            title="🚀 Управление маяками",
-            color=discord.Color.blue(),
-        )
-        embed.add_field(
-            name="Доступные действия:",
-            value=(
-                "**➕ Добавить маяк** - добавить новый маяк\n"
-                "**⛽ Заправить** - пополнить топливо маяка\n"
-                "**📊 Статус** - показать статус всех маяков\n"
-                "**✏️ Редактировать** - изменить данные маяка\n"
-                "**🗑️ Удалить** - удалить маяк\n"
-                "**🔄 Обновить** - обновить данные\n"
-                "**🧹 Очистить всё** - удалить все маяки (админ)"
-            ),
-            inline=False,
-        )
-        await interaction.response.send_message(
-            embed=embed,
-            view=BeaconMenuView(),
-            ephemeral=True,
-        )
-
-    @beacon.command(name="refuel", description="Пополнить топливо маяка")
-    async def refuel(interaction: discord.Interaction) -> None:
-        await open_beacon_select(
-            interaction,
-            action="refuel",
-            title="⛽ Заправка маяка",
-            description="Выберите маяк из списка ниже:",
-            empty_message="❌ Нет активных маяков для заправки!",
-        )
-
-    @beacon.command(name="status", description="Показать статус маяка")
-    async def status(interaction: discord.Interaction) -> None:
-        await open_beacon_select(
-            interaction,
-            action="status",
-            title="📊 Просмотр статуса маяка",
-            description=(
-                "Выберите маяк для просмотра детального статуса\n"
-                "или выберите 'Показать все маяки' для общего обзора"
-            ),
-            empty_message="📭 Нет активных маяков",
-        )
+            await send(f"❌ Ошибка: {exc}", ephemeral=True)
 
     @beacon.command(name="edit", description="Редактировать данные маяка")
     async def edit(interaction: discord.Interaction) -> None:

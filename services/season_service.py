@@ -216,13 +216,21 @@ def _panel_channel(
     return channel
 
 
-async def refresh_season_panel(bot: BeaconBot) -> discord.Message | None:
+async def refresh_season_panel(
+    bot: BeaconBot,
+    *,
+    edit_existing: bool = True,
+) -> discord.Message | None:
     async with _panel_lock:
-        return await _refresh_season_panel_locked(bot)
+        return await _refresh_season_panel_locked(
+            bot, edit_existing=edit_existing
+        )
 
 
 async def _refresh_season_panel_locked(
     bot: BeaconBot,
+    *,
+    edit_existing: bool = True,
 ) -> discord.Message | None:
     channel = _panel_channel(bot)
     if channel is None and config.PANEL_CHANNEL_ID:
@@ -252,6 +260,8 @@ async def _refresh_season_panel_locked(
         if saved_channel_id == config.PANEL_CHANNEL_ID:
             try:
                 message = await channel.fetch_message(message_id)
+                if not edit_existing:
+                    return message
                 await message.edit(embed=embed, view=None)
                 return message
             except Exception as exc:

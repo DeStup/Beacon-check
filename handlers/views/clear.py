@@ -8,6 +8,7 @@ import discord
 from discord.ui import Button, View
 
 from services import database as db
+from services.beacon_service import refresh_beacon_panel
 from utils.formatting import get_user_info
 from utils.logging_setup import action_logger, error_logger
 from utils.permissions import can_clear_beacons
@@ -126,14 +127,12 @@ class ConfirmClearView(View):
                 inline=False,
             )
 
-            if interaction.channel:
-                await interaction.channel.send(embed=embed)
-
             await interaction.response.edit_message(
-                content=f"✅ Все маяки ({count_before}) успешно удалены!",
-                embed=None,
+                content=None,
+                embed=embed,
                 view=None,
             )
+            await refresh_beacon_panel(interaction.client)  # type: ignore[arg-type]
         except Exception as exc:
             error_logger.error(
                 f"{get_user_info(interaction)} Ошибка при очистке всех маяков: {exc}",

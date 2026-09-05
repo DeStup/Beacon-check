@@ -172,6 +172,24 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS beacon_panel (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                channel_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                thread_id INTEGER
+            )
+            """
+        )
+        beacon_panel_cols = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(beacon_panel)")
+        }
+        if beacon_panel_cols and "thread_id" not in beacon_panel_cols:
+            conn.execute(
+                "ALTER TABLE beacon_panel ADD COLUMN thread_id INTEGER"
+            )
 
 
 def list_upkeep_summary() -> list[Row]:
@@ -645,6 +663,45 @@ def set_feed_panel(channel_id: int, message_id: int) -> None:
 def clear_feed_panel() -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM feed_panel WHERE id = 1")
+
+
+def get_beacon_panel() -> Optional[tuple[int, int, Optional[int]]]:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT channel_id, message_id, thread_id
+            FROM beacon_panel WHERE id = 1
+            """
+        ).fetchone()
+        if row is None:
+            return None
+        thread_raw = row["thread_id"]
+        thread_id = int(thread_raw) if thread_raw is not None else None
+        return int(row["channel_id"]), int(row["message_id"]), thread_id
+
+
+def set_beacon_panel(
+    channel_id: int,
+    message_id: int,
+    thread_id: Optional[int] = None,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO beacon_panel (id, channel_id, message_id, thread_id)
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                channel_id = excluded.channel_id,
+                message_id = excluded.message_id,
+                thread_id = excluded.thread_id
+            """,
+            (channel_id, message_id, thread_id),
+        )
+
+
+def clear_beacon_panel() -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM beacon_panel WHERE id = 1")
 
 
 def list_beacons_summary() -> list[Row]:

@@ -9,7 +9,7 @@ import discord
 import config
 from services import database as db
 from utils.embeds import progress_bar
-from utils.formatting import format_priority, get_user_info, priority_emoji
+from utils.formatting import format_priority, get_user_info
 from utils.logging_setup import action_logger, error_logger
 
 
@@ -62,7 +62,7 @@ async def show_beacon_status(
             value=f"{beacon['current_lifetime']:.2f}%\n{status_msg}",
             inline=True,
         )
-        embed.add_field(name="📊 Приоритет", value=priority_text, inline=True)
+        embed.add_field(name="Тип", value=priority_text, inline=True)
         embed.add_field(
             name="📊 Детально",
             value=(
@@ -81,11 +81,9 @@ async def show_beacon_status(
             )
 
         await interaction.response.send_message(
-            f"✅ Статус маяка {beacon_id} отправлен в чат",
+            embed=embed,
             ephemeral=True,
         )
-        if interaction.channel:
-            await interaction.channel.send(embed=embed)
 
     except Exception as exc:
         error_logger.error(
@@ -99,7 +97,7 @@ async def show_beacon_status(
 
 
 async def show_all_beacons_status(interaction: discord.Interaction) -> None:
-    """Показать статус всех маяков (публично)."""
+    """Показать статус всех маяков (лично)."""
     user_info = get_user_info(interaction)
     try:
         beacons = db.list_all_beacons()
@@ -147,26 +145,23 @@ async def show_all_beacons_status(interaction: discord.Interaction) -> None:
             if beacon["message_link"]:
                 field_value += f"\n[Перейти]({beacon['message_link']})"
 
+            type_label = format_priority(
+                float(beacon["fuel_consumption_rate"])
+            )
             embed.add_field(
-                name=(
-                    f"{status_mark}"
-                    f"{priority_emoji(beacon['fuel_consumption_rate'])} "
-                    f"{beacon['beacon_id']}"
-                ),
+                name=f"{status_mark}{beacon['beacon_id']} · {type_label}",
                 value=field_value,
                 inline=False,
             )
 
         embed.set_footer(
-            text="🔴 Высокий | 🟡 Средний | 🟢 Низкий | ⚠️ Требует внимания"
+            text="Фронтовой | Тыловой | ⚠️ Требует внимания"
         )
 
         await interaction.response.send_message(
-            "✅ Статус всех маяков отправлен в чат",
+            embed=embed,
             ephemeral=True,
         )
-        if interaction.channel:
-            await interaction.channel.send(embed=embed)
 
     except Exception as exc:
         error_logger.error(

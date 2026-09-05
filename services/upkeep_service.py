@@ -218,14 +218,22 @@ def _panel_channel(
     return channel
 
 
-async def refresh_upkeep_panel(bot: BeaconBot) -> discord.Message | None:
+async def refresh_upkeep_panel(
+    bot: BeaconBot,
+    *,
+    edit_existing: bool = True,
+) -> discord.Message | None:
     """Обновляет или создаёт сообщение панели Владений Новгорода в канале."""
     async with _panel_lock:
-        return await _refresh_upkeep_panel_locked(bot)
+        return await _refresh_upkeep_panel_locked(
+            bot, edit_existing=edit_existing
+        )
 
 
 async def _refresh_upkeep_panel_locked(
     bot: BeaconBot,
+    *,
+    edit_existing: bool = True,
 ) -> discord.Message | None:
     channel = _panel_channel(bot)
     if channel is None and config.PANEL_CHANNEL_ID:
@@ -257,6 +265,8 @@ async def _refresh_upkeep_panel_locked(
         if saved_channel_id == config.PANEL_CHANNEL_ID:
             try:
                 message = await channel.fetch_message(message_id)
+                if not edit_existing:
+                    return message
                 await message.edit(embed=embed, view=view)
                 return message
             except Exception as exc:
@@ -322,7 +332,6 @@ async def _check_upkeep_alerts(
 ) -> None:
     object_id = int(row["id"])
     name = row["name"]
-    rate = float(row["silver_per_hour"])
     try:
         warned = bool(row["low_warning_sent"])
     except (KeyError, IndexError):
@@ -334,13 +343,13 @@ async def _check_upkeep_alerts(
         if channel:
             if hours_left <= 0:
                 await channel.send(
-                    f"💀 Закончилось серебро у **{name}**"
+                    f"> 💀 Закончилось серебро у **{name}**"
                 )
             else:
                 deplete_at = datetime.now() + timedelta(hours=hours_left)
                 unix = int(deplete_at.timestamp())
                 await channel.send(
-                    f"⚠️ Мало серебра на содержание у **{name}**, "
+                    f"> ⚠️ Мало серебра на содержание у **{name}**, "
                     f"закончится (<t:{unix}:R>)"
                 )
         db.set_upkeep_low_warning(object_id, True)
@@ -354,15 +363,9 @@ async def _check_upkeep_alerts(
     ):
         db.set_upkeep_low_warning(object_id, False)
         if channel:
-            embed = build_upkeep_status_embed(
-                title="✅ Содержание восстановлено",
-                name=name,
-                silver_amount=silver,
-                silver_per_hour=rate,
-                hours_left=hours_left,
-                color=discord.Color.green(),
+            await channel.send(
+                f"> ✅ Содержание восстановлено у **{name}**"
             )
-            await channel.send(embed=embed)
         system_logger.info(f"Upkeep {name} recovered above warning threshold")
 
 
@@ -391,6 +394,11 @@ async def maintain_upkeep(bot: BeaconBot) -> None:
         error_msg = f"Ошибка в maintain_upkeep: {exc}"
         error_logger.error(error_msg, exc_info=True)
         print(f"[ОШИБКА] {error_msg}")
+
+
+@maintain_upkeep.before_loop
+async def _before_maintain_upkeep() -> None:
+    await asyncio.sleep(config.UPKEEP_MAINTAIN_OFFSET_SEC)
 
 
 def start_upkeep_tasks(bot: BeaconBot) -> None:

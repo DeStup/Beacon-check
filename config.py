@@ -58,11 +58,17 @@ SILVER_EMOJI: str = custom_emoji("silver", SILVER_EMOJI_ID)
 MAX_FUEL: float = 30.0
 MAX_LIFETIME: float = 100.0
 
-# Часы на 1 единицу топлива (priority 1 / 2 / 3)
+# Типы маяков: Фронтовой (= старый приоритет 1), Тыловой (= старый приоритет 3)
+# Значение — часы на 1 единицу топлива
+BEACON_TYPE_FRONT: int = 1
+BEACON_TYPE_REAR: int = 3
+BEACON_TYPE_LABELS: dict[int, str] = {
+    BEACON_TYPE_FRONT: "Фронтовой",
+    BEACON_TYPE_REAR: "Тыловой",
+}
 PRIORITY_RATES: dict[int, float] = {
-    1: 1.0,
-    2: 1.5,
-    3: 2.0,
+    BEACON_TYPE_FRONT: 1.0,
+    BEACON_TYPE_REAR: 2.0,
 }
 
 LIFETIME_DECAY_RATE: float = 100.0 / 48.0  # % в час при наличии топлива
@@ -137,6 +143,16 @@ NIGHT_MINUTES: int = 15  # DAY_CYCLE_MINUTES - DAYLIGHT_MINUTES
 
 # Пользователи с правом /beacon clear вне админ-прав гильдии
 CLEAR_ALLOWED_USER_IDS: frozenset[int] = frozenset({226751097295994881})
+
+# Разнос PATCH панелей (чтобы не ловить 429 в одном канале)
+PANEL_PATCH_GAP_SECONDS: float = 3.0
+# Смещение первого тика минутных циклов после start_* (сек)
+BEACON_MAINTAIN_OFFSET_SEC: float = 60.0
+FEED_MAINTAIN_OFFSET_SEC: float = 80.0
+UPKEEP_MAINTAIN_OFFSET_SEC: float = 100.0
+# ensure_all_panels: первый запуск и период
+PANELS_ENSURE_OFFSET_SEC: float = 130.0
+PANELS_ENSURE_INTERVAL_MINUTES: float = 2.0
 
 LOG_MAX_BYTES: int = 10 * 1024 * 1024
 LOG_BACKUP_COUNT: int = 5

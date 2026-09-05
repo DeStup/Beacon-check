@@ -10,103 +10,13 @@ from discord.ui import Modal, TextInput
 
 import config
 from services import database as db
-from utils.formatting import format_priority, get_user_info, rate_from_priority
+from services.beacon_service import refresh_beacon_panel
+from utils.formatting import format_priority, get_user_info
 from utils.logging_setup import action_logger, error_logger
 
 
-class RefuelModal(Modal, title="⛽ Заправка маяка"):
-    """Модальное окно для заправки маяка."""
-
-    def __init__(self, beacon_id: Optional[str] = None) -> None:
-        super().__init__()
-        self.beacon_id_input = TextInput(
-            label="ID маяка",
-            placeholder="Например: BCN-001",
-            required=True,
-            max_length=20,
-            default=beacon_id or "",
-        )
-        self.amount_input = TextInput(
-            label=f"Количество топлива (0-{int(config.MAX_FUEL)})",
-            placeholder=f"Оставьте пустым для полной заправки ({int(config.MAX_FUEL)})",
-            required=False,
-            max_length=3,
-        )
-        self.add_item(self.beacon_id_input)
-        self.add_item(self.amount_input)
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        amount = (
-            float(self.amount_input.value)
-            if self.amount_input.value
-            else config.MAX_FUEL
-        )
-        beacon_id = self.beacon_id_input.value
-        user_id = str(interaction.user.id)
-        username = interaction.user.name
-
-        try:
-            result = db.refuel_beacon(beacon_id, amount)
-            if result is None:
-                await interaction.response.send_message(
-                    f"❌ Маяк {beacon_id} не найден!",
-                    ephemeral=True,
-                )
-                return
-
-            added = result["added"]
-            if added >= (config.MAX_FUEL / 2):
-                db.increment_user_stat(user_id, username, "refueled")
-                action_logger.info(
-                    f"User {username} earned refuel point for beacon {beacon_id}: "
-                    f"added {added:.1f} fuel (≥15)"
-                )
-
-            action_logger.info(
-                f"{get_user_info(interaction)} modal refueled beacon {beacon_id} | "
-                f"Added: {amount:.1f}, Real added: {added:.1f}, "
-                f"Old: {result['old_fuel']:.1f}, "
-                f"New: {result['new_fuel']:.1f}/{config.MAX_FUEL}"
-            )
-
-            embed = discord.Embed(
-                title="⛽ Заправлен маяк",
-                description=f"**{beacon_id}**",
-                color=discord.Color.blue(),
-            )
-            embed.add_field(
-                name="Новое топливо",
-                value=f"{result['new_fuel']:.1f}/{config.MAX_FUEL}",
-            )
-            embed.add_field(name="Добавлено", value=f"{added:.1f}")
-            if result["message_link"]:
-                embed.add_field(
-                    name="",
-                    value=f"🔗 [Перейти]({result['message_link']})",
-                    inline=False,
-                )
-            embed.add_field(
-                name="",
-                value=f"Заправил: {interaction.user.mention}",
-                inline=False,
-            )
-
-            await interaction.response.send_message(
-                f"✅ Заправка маяка {beacon_id} выполнена!",
-                ephemeral=True,
-            )
-            if interaction.channel:
-                await interaction.channel.send(embed=embed)
-
-        except Exception as exc:
-            await interaction.response.send_message(
-                f"❌ Ошибка: {exc}",
-                ephemeral=True,
-            )
-
-
 class EditBeaconModal(Modal, title="✏️ Редактирование маяка"):
-    """Модальное окно для редактирования маяка."""
+    """Модальное окно: только топливо и прочность (тип — отдельный Select)."""
 
     def __init__(self, beacon_id: Optional[str] = None) -> None:
         super().__init__()
@@ -116,12 +26,6 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
             required=True,
             max_length=20,
             default=beacon_id or "",
-        )
-        self.priority_input = TextInput(
-            label="Новый приоритет (1-3)",
-            placeholder="Оставьте пустым, если не меняете",
-            required=False,
-            max_length=1,
         )
         self.fuel_input = TextInput(
             label=f"Новое топливо (0-{int(config.MAX_FUEL)})",
@@ -136,7 +40,6 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
             max_length=3,
         )
         self.add_item(self.beacon_id_input)
-        self.add_item(self.priority_input)
         self.add_item(self.fuel_input)
         self.add_item(self.lifetime_input)
 
@@ -157,37 +60,14 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
 
         updates: dict[str, float] = {}
         changes: list[str] = []
-        new_values: dict[str, float | str] = {}
+        new_values: dict[str, float | str] = {
+            "priority": format_priority(old_rate),
+        }
         reset_status = False
         earned_refuel = False
         earned_repair = False
         fuel_added = 0.0
         lifetime_added = 0.0
-
-        if self.priority_input.value:
-            try:
-                priority = int(self.priority_input.value)
-                if priority not in (1, 2, 3):
-                    await interaction.response.send_message(
-                        "❌ Ошибка: приоритет должен быть 1, 2 или 3",
-                        ephemeral=True,
-                    )
-                    return
-                rate = rate_from_priority(priority)
-                updates["fuel_consumption_rate"] = rate
-                new_priority = format_priority(rate)
-                changes.append(
-                    f"приоритет: {format_priority(old_rate)} → {new_priority}"
-                )
-                new_values["priority"] = new_priority
-            except ValueError:
-                await interaction.response.send_message(
-                    "❌ Ошибка: приоритет должен быть числом",
-                    ephemeral=True,
-                )
-                return
-        else:
-            new_values["priority"] = format_priority(old_rate)
 
         if self.fuel_input.value:
             try:
@@ -287,47 +167,25 @@ class EditBeaconModal(Modal, title="✏️ Редактирование маяк
                 title="✏️ Изменён маяк",
                 description=f"**{beacon_id}**",
                 color=discord.Color.gold(),
-                timestamp=datetime.now(),
-            )
-            embed.add_field(
-                name="🔋 Топливо",
-                value=f"{float(new_values['fuel']):.1f}/{config.MAX_FUEL}",
-                inline=True,
-            )
-            embed.add_field(
-                name="🔄 Прочность",
-                value=f"{float(new_values['lifetime']):.1f}%",
-                inline=True,
-            )
-            embed.add_field(
-                name="📊 Приоритет",
-                value=str(new_values["priority"]),
-                inline=True,
             )
             if changes:
                 embed.add_field(
-                    name="📝 Изменения",
+                    name="Изменения",
                     value="\n".join(f"• {change}" for change in changes),
                     inline=False,
                 )
             if message_link:
                 embed.add_field(
                     name="",
-                    value=f"🔗 [Перейти]({message_link})",
+                    value=f"[Перейти]({message_link})",
                     inline=False,
                 )
-            embed.add_field(
-                name="",
-                value=f"Отредактировал: {interaction.user.mention}",
-                inline=False,
-            )
 
             await interaction.response.send_message(
-                f"✅ Данные маяка {beacon_id} успешно обновлены!",
+                embed=embed,
                 ephemeral=True,
             )
-            if interaction.channel:
-                await interaction.channel.send(embed=embed)
+            await refresh_beacon_panel(interaction.client)  # type: ignore[arg-type]
 
             action_logger.info(
                 f"{get_user_info(interaction)} modal edited beacon {beacon_id}: "
@@ -408,11 +266,10 @@ class DeleteBeaconModal(Modal, title="🗑️ Удаление маяка"):
             )
 
             await interaction.response.send_message(
-                f"✅ Маяк {beacon_id} успешно удалён!",
+                embed=embed,
                 ephemeral=True,
             )
-            if interaction.channel:
-                await interaction.channel.send(embed=embed)
+            await refresh_beacon_panel(interaction.client)  # type: ignore[arg-type]
 
         except Exception as exc:
             await interaction.response.send_message(

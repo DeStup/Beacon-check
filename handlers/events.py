@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
-from services.beacon_service import start_background_tasks
+import config
+from services.beacon_service import ensure_beacon_panel, start_background_tasks
 from services.feed_service import ensure_feed_panel, start_feed_tasks
-from services.panel_service import ensure_all_panels, start_panel_tasks
+from services.panel_service import start_panel_tasks
 from services.relic_service import ensure_relic_panel
 from services.season_service import (
     advance_due_seasons,
@@ -25,15 +27,28 @@ def setup(bot: BeaconBot) -> None:
     async def on_ready() -> None:
         print(f"Бот {bot.user} запущен!")
         system_logger.info(f"Bot {bot.user} started!")
-        start_background_tasks(bot)
+
+        gap = config.PANEL_PATCH_GAP_SECONDS
+
+        await ensure_beacon_panel(bot)
+        await asyncio.sleep(gap)
+
         await ensure_upkeep_panel(bot)
-        start_upkeep_tasks(bot)
+        await asyncio.sleep(gap)
+
         await ensure_feed_panel(bot)
-        start_feed_tasks(bot)
+        await asyncio.sleep(gap)
+
         await bot.relic_timer.restore(bot)
         await ensure_relic_panel(bot)
+        await asyncio.sleep(gap)
+
         await advance_due_seasons(bot)
         await ensure_season_panel(bot)
         await restart_season_watcher(bot)
-        await ensure_all_panels(bot)
+
+        # Фоновые циклы после первичного ensure — со своими offset
+        start_background_tasks(bot)
+        start_upkeep_tasks(bot)
+        start_feed_tasks(bot)
         start_panel_tasks(bot)

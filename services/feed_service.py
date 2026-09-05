@@ -184,13 +184,21 @@ def _panel_channel(
     return channel
 
 
-async def refresh_feed_panel(bot: BeaconBot) -> discord.Message | None:
+async def refresh_feed_panel(
+    bot: BeaconBot,
+    *,
+    edit_existing: bool = True,
+) -> discord.Message | None:
     async with _panel_lock:
-        return await _refresh_feed_panel_locked(bot)
+        return await _refresh_feed_panel_locked(
+            bot, edit_existing=edit_existing
+        )
 
 
 async def _refresh_feed_panel_locked(
     bot: BeaconBot,
+    *,
+    edit_existing: bool = True,
 ) -> discord.Message | None:
     channel = _panel_channel(bot)
     if channel is None and config.PANEL_CHANNEL_ID:
@@ -222,6 +230,8 @@ async def _refresh_feed_panel_locked(
         if saved_channel_id == config.PANEL_CHANNEL_ID:
             try:
                 message = await channel.fetch_message(message_id)
+                if not edit_existing:
+                    return message
                 await message.edit(embed=embed, view=view)
                 return message
             except Exception as exc:
@@ -300,10 +310,9 @@ async def _check_feed_alerts(
     if satiety <= 0:
         if not death_notified:
             if channel:
+                verb = "умерла" if animal_type == "horse" else "умер"
                 await channel.send(
-                    f"💀 {display} "
-                    f"{'умерла' if animal_type == 'horse' else 'умер'} "
-                    f"от голода."
+                    f"> 💀 {display} {verb} от голода."
                 )
             db.set_feed_death_notified(animal_id, True)
             db.set_feed_low_warning(animal_id, True)
@@ -313,9 +322,9 @@ async def _check_feed_alerts(
     if satiety < config.FEED_WARNING_THRESHOLD:
         if not low_warned:
             if channel:
-                pct = int(satiety) if satiety == int(satiety) else round(satiety, 1)
+                pct = int(round(satiety))
                 await channel.send(
-                    f"⚠️ Мало сытости у {display} — `{pct}%`"
+                    f"> ⚠️ Мало сытости у {display} — `{pct}%`"
                 )
             db.set_feed_low_warning(animal_id, True)
             feed_logger.info(
@@ -344,6 +353,11 @@ async def maintain_feed(bot: BeaconBot) -> None:
         error_msg = f"Ошибка в maintain_feed: {exc}"
         error_logger.error(error_msg, exc_info=True)
         print(f"[ОШИБКА] {error_msg}")
+
+
+@maintain_feed.before_loop
+async def _before_maintain_feed() -> None:
+    await asyncio.sleep(config.FEED_MAINTAIN_OFFSET_SEC)
 
 
 def start_feed_tasks(bot: BeaconBot) -> None:

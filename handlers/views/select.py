@@ -1,17 +1,19 @@
-"""Выпадающий список маяков."""
+"""Выпадающий список маяков и редактирование типа."""
 
 from __future__ import annotations
 
 from typing import Sequence
 
 import discord
-from discord.ui import Select, View
+from discord.ui import Button, Select, View
 
 import config
-from handlers.views.modals import DeleteBeaconModal, EditBeaconModal, RefuelModal
-from handlers.views.status import show_all_beacons_status, show_beacon_status
+from handlers.views.modals import DeleteBeaconModal, EditBeaconModal
+from services import database as db
+from services.beacon_service import refresh_beacon_panel
 from services.database import Row
-from utils.formatting import priority_emoji
+from utils.formatting import format_priority, get_user_info, rate_from_priority
+from utils.logging_setup import action_logger, error_logger
 
 
 class BeaconSelectView(View):
@@ -55,16 +57,7 @@ class BeaconSelect(Select):
             ]
         else:
             options: list[discord.SelectOption] = []
-            if action_type == "status":
-                options.append(
-                    discord.SelectOption(
-                        label="📊 Показать все маяки",
-                        value="all",
-                        description="Показать статус всех маяков",
-                        emoji="📋",
-                    )
-                )
-            for beacon in beacons[:24]:
+            for beacon in beacons[:25]:
                 options.append(
                     discord.SelectOption(
                         label=beacon["beacon_id"],
@@ -73,7 +66,6 @@ class BeaconSelect(Select):
                             f"🔋{beacon['current_fuel']:.0f}/{int(config.MAX_FUEL)} | "
                             f"🔄{beacon['current_lifetime']:.0f}%"
                         ),
-                        emoji=priority_emoji(beacon["fuel_consumption_rate"]),
                     )
                 )
 
@@ -94,19 +86,159 @@ class BeaconSelect(Select):
 
         beacon_id = self.values[0]
 
-        if self.action_type == "status":
-            if beacon_id == "all":
-                await show_all_beacons_status(interaction)
-            else:
-                await show_beacon_status(interaction, beacon_id)
-            return
-
-        if self.action_type == "refuel":
-            await interaction.response.send_modal(RefuelModal(beacon_id))
-            return
         if self.action_type == "edit":
-            await interaction.response.send_modal(EditBeaconModal(beacon_id))
+            row = db.get_beacon(beacon_id)
+            if not row:
+                await interaction.response.send_message(
+                    f"❌ Маяк {beacon_id} не найден!",
+                    ephemeral=True,
+                )
+                return
+            embed = discord.Embed(
+                title=f"✏️ Редактирование: {beacon_id}",
+                description=(
+                    "Выберите **тип** в списке ниже.\n"
+                    "Топливо и прочность — кнопкой."
+                ),
+                color=discord.Color.gold(),
+            )
+            await interaction.response.send_message(
+                embed=embed,
+                view=EditBeaconView(
+                    beacon_id,
+                    interaction.user.id,
+                    float(row["fuel_consumption_rate"]),
+                ),
+                ephemeral=True,
+            )
             return
         if self.action_type == "delete":
             await interaction.response.send_modal(DeleteBeaconModal(beacon_id))
             return
+
+
+class BeaconTypeSelect(Select):
+    """Фиксированный выбор типа: Фронтовой / Тыловой."""
+
+    def __init__(self, beacon_id: str, current_rate: float) -> None:
+        self.beacon_id = beacon_id
+        front_rate = config.PRIORITY_RATES[config.BEACON_TYPE_FRONT]
+        is_front = current_rate == front_rate
+        options = [
+            discord.SelectOption(
+                label=config.BEACON_TYPE_LABELS[config.BEACON_TYPE_FRONT],
+                value=str(config.BEACON_TYPE_FRONT),
+                description="Быстрый расход топлива",
+                default=is_front,
+            ),
+            discord.SelectOption(
+                label=config.BEACON_TYPE_LABELS[config.BEACON_TYPE_REAR],
+                value=str(config.BEACON_TYPE_REAR),
+                description="Обычный",
+                default=not is_front,
+            ),
+        ]
+        super().__init__(
+            placeholder="Тип маяка…",
+            min_values=1,
+            max_values=1,
+            options=options,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        beacon_id = self.beacon_id
+        priority = int(self.values[0])
+        rate = rate_from_priority(priority)
+        current = db.get_beacon(beacon_id)
+        if not current:
+            await interaction.response.send_message(
+                f"❌ Маяк {beacon_id} не найден!",
+                ephemeral=True,
+            )
+            return
+
+        old_rate = float(current["fuel_consumption_rate"])
+        if old_rate == rate:
+            await interaction.response.send_message(
+                f"Тип уже **{format_priority(rate)}**.",
+                ephemeral=True,
+            )
+            return
+
+        try:
+            db.update_beacon_fields(
+                beacon_id,
+                updates={"fuel_consumption_rate": rate},
+            )
+            await refresh_beacon_panel(interaction.client)  # type: ignore[arg-type]
+            action_logger.info(
+                f"{get_user_info(interaction)} set beacon {beacon_id} type "
+                f"{format_priority(old_rate)} → {format_priority(rate)}"
+            )
+            embed = discord.Embed(
+                title="✏️ Изменён маяк",
+                description=f"**{beacon_id}**",
+                color=discord.Color.gold(),
+            )
+            embed.add_field(
+                name="Изменения",
+                value=(
+                    f"• тип: {format_priority(old_rate)} → "
+                    f"{format_priority(rate)}"
+                ),
+                inline=False,
+            )
+            if current["message_link"]:
+                embed.add_field(
+                    name="",
+                    value=f"[Перейти]({current['message_link']})",
+                    inline=False,
+                )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as exc:
+            error_logger.error(
+                f"{get_user_info(interaction)} type edit failed: {exc}",
+                exc_info=True,
+            )
+            await interaction.response.send_message(
+                f"❌ Ошибка: {exc}",
+                ephemeral=True,
+            )
+
+
+class EditBeaconView(View):
+    """Редактирование: Select типа + модалка топлива/прочности."""
+
+    def __init__(
+        self,
+        beacon_id: str,
+        user_id: int,
+        current_rate: float,
+    ) -> None:
+        super().__init__(timeout=120)
+        self.beacon_id = beacon_id
+        self.user_id = user_id
+        self.add_item(BeaconTypeSelect(beacon_id, current_rate))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message(
+                "❌ Вы не можете использовать это меню!",
+                ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(
+        label="Топливо и прочность",
+        style=discord.ButtonStyle.primary,
+        emoji="✏️",
+        row=1,
+    )
+    async def stats_button(
+        self,
+        interaction: discord.Interaction,
+        button: Button,
+    ) -> None:
+        await interaction.response.send_modal(EditBeaconModal(self.beacon_id))

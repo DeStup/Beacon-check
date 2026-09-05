@@ -1,4 +1,4 @@
-"""Меню управления маяками."""
+"""Меню и постоянная панель управления маяками."""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ from discord.ui import Button, View
 from handlers.views.clear import prompt_clear_all_beacons
 from handlers.views.select import BeaconSelectView
 from services import database as db
-from services.beacon_service import apply_decay_to_all_beacons
+from services.beacon_service import (
+    apply_decay_to_all_beacons,
+    build_all_beacons_status_embed,
+    refresh_beacon_panel,
+)
 from utils.formatting import get_user_info
 from utils.logging_setup import action_logger
 
@@ -33,17 +37,18 @@ async def open_beacon_select(
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
-class BeaconMenuView(View):
-    """Кнопочное меню управления маяками."""
+class BeaconPanelView(View):
+    """Постоянное меню «Панель Маяков»."""
 
     def __init__(self) -> None:
-        super().__init__(timeout=120)
+        super().__init__(timeout=None)
 
     @discord.ui.button(
-        label="Добавить маяк",
+        label="Добавить",
         style=discord.ButtonStyle.green,
         emoji="➕",
         row=0,
+        custom_id="beacon_panel:add",
     )
     async def add_button(
         self,
@@ -51,56 +56,38 @@ class BeaconMenuView(View):
         button: Button,
     ) -> None:
         await interaction.response.send_message(
-            "Используйте команду `/beacon add` для добавления маяка:\n",
+            "Используйте команду `/beacon add` для добавления маяка.",
             ephemeral=True,
         )
 
     @discord.ui.button(
-        label="Заправить",
-        style=discord.ButtonStyle.primary,
-        emoji="⛽",
-        row=0,
-    )
-    async def refuel_button(
-        self,
-        interaction: discord.Interaction,
-        button: Button,
-    ) -> None:
-        await open_beacon_select(
-            interaction,
-            action="refuel",
-            title="⛽ Заправка маяка",
-            description="Выберите маяк из списка ниже:",
-            empty_message="❌ Нет активных маяков для заправки!",
-        )
-
-    @discord.ui.button(
-        label="Статус",
+        label="Обновить",
         style=discord.ButtonStyle.secondary,
-        emoji="📊",
+        emoji="🔄",
         row=0,
+        custom_id="beacon_panel:refresh",
     )
-    async def status_button(
+    async def refresh_button(
         self,
         interaction: discord.Interaction,
         button: Button,
     ) -> None:
-        await open_beacon_select(
-            interaction,
-            action="status",
-            title="📊 Просмотр статуса маяка",
-            description=(
-                "Выберите маяк для просмотра детального статуса\n"
-                "или выберите 'Показать все маяки' для общего обзора"
-            ),
-            empty_message="📭 Нет активных маяков",
+        updated = apply_decay_to_all_beacons()
+        action_logger.info(
+            f"{get_user_info(interaction)} refreshed beacon panel "
+            f"({updated} beacons updated)"
+        )
+        await interaction.response.edit_message(
+            embed=build_all_beacons_status_embed(),
+            view=self,
         )
 
     @discord.ui.button(
         label="Редактировать",
         style=discord.ButtonStyle.secondary,
         emoji="✏️",
-        row=1,
+        row=0,
+        custom_id="beacon_panel:edit",
     )
     async def edit_button(
         self,
@@ -120,6 +107,7 @@ class BeaconMenuView(View):
         style=discord.ButtonStyle.danger,
         emoji="🗑️",
         row=1,
+        custom_id="beacon_panel:delete",
     )
     async def delete_button(
         self,
@@ -136,33 +124,11 @@ class BeaconMenuView(View):
         )
 
     @discord.ui.button(
-        label="Обновить",
-        style=discord.ButtonStyle.secondary,
-        emoji="🔄",
-        row=1,
-    )
-    async def refresh_button(
-        self,
-        interaction: discord.Interaction,
-        button: Button,
-    ) -> None:
-        updated = apply_decay_to_all_beacons()
-        action_logger.info(
-            f"{get_user_info(interaction)} manual beacon refresh "
-            f"({updated} beacons updated)"
-        )
-        embed = discord.Embed(
-            title="🔄 Данные обновлены",
-            description=f"Пересчитано маяков: **{updated}**",
-            color=discord.Color.green(),
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    @discord.ui.button(
         label="Очистить всё",
         style=discord.ButtonStyle.danger,
         emoji="⚠️",
-        row=2,
+        row=1,
+        custom_id="beacon_panel:clear",
     )
     async def clear_button(
         self,

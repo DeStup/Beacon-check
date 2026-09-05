@@ -1,7 +1,8 @@
-"""Бизнес-логика маяков: расход топлива, проверки, алерты."""
+"""Бизнес-логика маяков: расход топлива, проверки, алерты, панель."""
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -10,11 +11,15 @@ from discord.ext import tasks
 
 import config
 from services import database as db
-from utils.embeds import progress_bar, status_emoji
+from utils.embeds import gray_progress_bar, status_emoji
+from utils.formatting import format_priority
 from utils.logging_setup import error_logger, system_logger
 
 if TYPE_CHECKING:
     from bot import BeaconBot
+
+_panel_lock = asyncio.Lock()
+BEACON_THREAD_NAME = "Локации маяков"
 
 
 def hours_since(last_updated: str) -> float:
@@ -67,19 +72,311 @@ def _beacon_status_embed(
     embed.add_field(
         name=f"{status_emoji(fuel_percent)} Топливо",
         value=(
-            f"🔋 {progress_bar(fuel, config.MAX_FUEL)} "
-            f"{fuel:.1f}/{config.MAX_FUEL} ({fuel_percent:.1f}%)"
+            f"🛢️ {gray_progress_bar(fuel, config.MAX_FUEL)} "
+            f"{fuel:.1f}/{config.MAX_FUEL:.1f}"
         ),
         inline=False,
     )
     embed.add_field(
         name=f"{status_emoji(lifetime)} Прочность",
-        value=f"🔄 {progress_bar(lifetime, config.MAX_LIFETIME)} {lifetime:.1f}%",
+        value=(
+            f"🔧 {gray_progress_bar(lifetime, config.MAX_LIFETIME)} "
+            f"{lifetime:.1f}%"
+        ),
         inline=False,
     )
     if message_link:
         embed.add_field(name="", value=f"🔗 [Перейти]({message_link})", inline=False)
     return embed
+
+
+def format_beacon_panel_table(beacons: list[Any]) -> tuple[str, bool]:
+    """
+    имя · Фронтовой · [Перейти]
+    🛢️ bar fuel/max
+    🔧 bar lifetime%
+    """
+    rows: list[str] = []
+    has_warning = False
+
+    for beacon in beacons[:25]:
+        fuel = float(beacon["current_fuel"])
+        lifetime = float(beacon["current_lifetime"])
+        fuel_percent = (fuel / config.MAX_FUEL) * 100
+        rate = float(beacon["fuel_consumption_rate"])
+
+        if (
+            lifetime <= config.WARNING_THRESHOLD
+            or fuel_percent <= config.WARNING_THRESHOLD
+        ):
+            has_warning = True
+
+        if (
+            lifetime <= config.CRITICAL_THRESHOLD
+            or fuel_percent <= config.CRITICAL_THRESHOLD
+        ):
+            status_mark = "💀 "
+        elif (
+            lifetime <= config.WARNING_THRESHOLD
+            or fuel_percent <= config.WARNING_THRESHOLD
+        ):
+            status_mark = "⚠️ "
+        else:
+            status_mark = ""
+
+        type_label = format_priority(rate)
+        header = f"{status_mark}**{beacon['beacon_id']}** · {type_label}"
+        if beacon["message_link"]:
+            header += f" · [Перейти]({beacon['message_link']})"
+
+        fuel_i = int(round(fuel))
+        max_fuel_i = int(round(config.MAX_FUEL))
+        life_i = int(round(lifetime))
+        # Один пробел после эмодзи — полоски стартуют в одной колонке
+        fuel_line = (
+            f"🛢️ {gray_progress_bar(fuel, config.MAX_FUEL)} "
+            f"{fuel_i}/{max_fuel_i}"
+        )
+        life_line = (
+            f"🔧 {gray_progress_bar(lifetime, config.MAX_LIFETIME)} "
+            f"{life_i}%"
+        )
+        rows.append(f"{header}\n{fuel_line}\n{life_line}")
+
+    return "\n\n".join(rows), has_warning
+
+
+def build_all_beacons_status_embed() -> discord.Embed:
+    """Embed постоянной панели маяков."""
+    beacons = db.list_all_beacons()
+    if not beacons:
+        return discord.Embed(
+            title="Панель Маяков",
+            description="📭 Нет активных маяков",
+            color=discord.Color.dark_grey(),
+            timestamp=datetime.now(),
+        )
+
+    description, has_warning = format_beacon_panel_table(beacons)
+    color = (
+        discord.Color.yellow() if has_warning else discord.Color.green()
+    )
+    embed = discord.Embed(
+        title="Панель Маяков",
+        description=description,
+        color=color,
+        timestamp=datetime.now(),
+    )
+
+    if len(beacons) > 25:
+        embed.set_footer(text=f"Показаны первые 25 из {len(beacons)}")
+    return embed
+
+
+def _panel_channel(
+    bot: BeaconBot,
+) -> discord.TextChannel | None:
+    if not config.PANEL_CHANNEL_ID:
+        return None
+    channel = bot.get_channel(config.PANEL_CHANNEL_ID)
+    if isinstance(channel, discord.TextChannel):
+        return channel
+    return None
+
+
+async def _resolve_panel_channel(
+    bot: BeaconBot,
+) -> discord.TextChannel | None:
+    channel = _panel_channel(bot)
+    if channel is not None:
+        return channel
+    if not config.PANEL_CHANNEL_ID:
+        return None
+    try:
+        fetched = await bot.fetch_channel(config.PANEL_CHANNEL_ID)
+    except (discord.NotFound, discord.HTTPException) as exc:
+        error_logger.error(
+            f"Канал панели маяков недоступен: {exc}",
+            exc_info=True,
+        )
+        return None
+    if isinstance(fetched, discord.TextChannel):
+        return fetched
+    return None
+
+
+async def _ensure_thread_for_message(
+    bot: BeaconBot,
+    message: discord.Message,
+    thread_id: int | None,
+) -> discord.Thread | None:
+    """Находит или создаёт ветку панели маяков."""
+    if thread_id:
+        thread = bot.get_channel(thread_id)
+        if isinstance(thread, discord.Thread):
+            try:
+                if thread.archived:
+                    await thread.edit(archived=False)
+                return thread
+            except discord.HTTPException:
+                pass
+        try:
+            fetched = await bot.fetch_channel(thread_id)
+            if isinstance(fetched, discord.Thread):
+                if fetched.archived:
+                    await fetched.edit(archived=False)
+                return fetched
+        except (discord.NotFound, discord.HTTPException):
+            pass
+
+    if message.thread is not None:
+        thread = message.thread
+        try:
+            if thread.archived:
+                await thread.edit(archived=False)
+        except discord.HTTPException:
+            pass
+        return thread
+
+    try:
+        return await message.create_thread(
+            name=BEACON_THREAD_NAME,
+            auto_archive_duration=10080,
+            reason="Ветка локаций панели маяков",
+        )
+    except discord.HTTPException as exc:
+        error_logger.error(
+            f"Не удалось создать ветку панели маяков: {exc}",
+            exc_info=True,
+        )
+        return None
+
+
+async def refresh_beacon_panel(
+    bot: BeaconBot,
+    *,
+    edit_existing: bool = True,
+) -> discord.Message | None:
+    async with _panel_lock:
+        return await _refresh_beacon_panel_locked(
+            bot, edit_existing=edit_existing
+        )
+
+
+async def _refresh_beacon_panel_locked(
+    bot: BeaconBot,
+    *,
+    edit_existing: bool = True,
+) -> discord.Message | None:
+    channel = await _resolve_panel_channel(bot)
+    if channel is None:
+        return None
+
+    from handlers.views.menu import BeaconPanelView
+
+    embed = build_all_beacons_status_embed()
+    view = BeaconPanelView()
+    saved = db.get_beacon_panel()
+
+    if saved is not None:
+        saved_channel_id, message_id, thread_id = saved
+        if saved_channel_id == config.PANEL_CHANNEL_ID:
+            try:
+                message = await channel.fetch_message(message_id)
+                if not edit_existing:
+                    return message
+                await message.edit(embed=embed, view=view)
+                thread = await _ensure_thread_for_message(
+                    bot, message, thread_id
+                )
+                new_thread_id = thread.id if thread else thread_id
+                if new_thread_id != thread_id:
+                    db.set_beacon_panel(
+                        config.PANEL_CHANNEL_ID,
+                        message.id,
+                        new_thread_id,
+                    )
+                return message
+            except Exception as exc:
+                from services.panel_service import is_unknown_message
+
+                if is_unknown_message(exc):
+                    db.clear_beacon_panel()
+                    system_logger.info(
+                        "Beacon panel message missing — will recreate"
+                    )
+                else:
+                    error_logger.error(
+                        f"Не удалось обновить панель маяков: {exc}",
+                        exc_info=True,
+                    )
+                    return None
+        else:
+            db.clear_beacon_panel()
+
+    try:
+        message = await channel.send(embed=embed, view=view)
+        thread = await _ensure_thread_for_message(bot, message, None)
+        db.set_beacon_panel(
+            config.PANEL_CHANNEL_ID,
+            message.id,
+            thread.id if thread else None,
+        )
+        system_logger.info(
+            f"Beacon panel created in channel "
+            f"{config.PANEL_CHANNEL_ID} message={message.id} "
+            f"thread={thread.id if thread else None}"
+        )
+        return message
+    except discord.HTTPException as exc:
+        error_logger.error(
+            f"Не удалось создать панель маяков: {exc}",
+            exc_info=True,
+        )
+        return None
+
+
+async def ensure_beacon_panel(bot: BeaconBot) -> None:
+    from handlers.views.menu import BeaconPanelView
+
+    if not getattr(bot, "_beacon_panel_view_registered", False):
+        bot.add_view(BeaconPanelView())
+        setattr(bot, "_beacon_panel_view_registered", True)
+    if not config.PANEL_CHANNEL_ID:
+        system_logger.warning(
+            "PANEL_CHANNEL_ID не задан — панель маяков отключена"
+        )
+        return
+    await refresh_beacon_panel(bot)
+
+
+async def get_beacon_panel_thread(bot: BeaconBot) -> discord.Thread | None:
+    """Ветка панели для сообщений с локациями маяков."""
+    await ensure_beacon_panel(bot)
+    saved = db.get_beacon_panel()
+    if saved is None:
+        return None
+    _, message_id, thread_id = saved
+    channel = await _resolve_panel_channel(bot)
+    if channel is None:
+        return None
+    try:
+        message = await channel.fetch_message(message_id)
+    except (discord.NotFound, discord.HTTPException):
+        await refresh_beacon_panel(bot)
+        saved = db.get_beacon_panel()
+        if saved is None:
+            return None
+        _, message_id, thread_id = saved
+        try:
+            message = await channel.fetch_message(message_id)
+        except (discord.NotFound, discord.HTTPException):
+            return None
+
+    thread = await _ensure_thread_for_message(bot, message, thread_id)
+    if thread is not None:
+        db.set_beacon_panel(config.PANEL_CHANNEL_ID, message.id, thread.id)
+    return thread
 
 
 def _apply_decay_to_beacon(beacon: Any, now: str) -> tuple[float, float]:
@@ -135,7 +432,9 @@ async def _check_beacon_alerts(
             else "маяк полностью сгнил"
         )
         if channel:
-            await channel.send(f"🗑️ Маяк {beacon_id} удалён: {reason}")
+            await channel.send(
+                f"> 🗑️ Маяк **{beacon_id}** удалён — {reason}"
+            )
         system_logger.info(f"Auto-deleted beacon {beacon_id}: {reason}")
         db.delete_beacon(beacon_id)
         return
@@ -208,11 +507,17 @@ async def maintain_beacons(bot: BeaconBot) -> None:
             system_logger.debug(
                 f"Beacon maintenance completed for {updated_count} beacons"
             )
+        await refresh_beacon_panel(bot)
     except Exception as exc:
         error_msg = f"Ошибка в maintain_beacons: {exc}"
         error_logger.error(error_msg, exc_info=True)
         print(f"[ОШИБКА] {error_msg}")
         # Не re-raise: цикл должен продолжать работать после сбоя
+
+
+@maintain_beacons.before_loop
+async def _before_maintain_beacons() -> None:
+    await asyncio.sleep(config.BEACON_MAINTAIN_OFFSET_SEC)
 
 
 def start_background_tasks(bot: BeaconBot) -> None:

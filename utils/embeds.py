@@ -21,6 +21,36 @@ def progress_bar(
     return filled_char * filled + empty_char * (bar_length - filled)
 
 
+def gray_progress_bar(
+    value: float,
+    max_value: float,
+    bar_length: int = 10,
+) -> str:
+    """Серая полоска (как на панели сытости)."""
+    return progress_bar(
+        value,
+        max_value,
+        bar_length=bar_length,
+        filled_char="▓",
+        empty_char="░",
+    )
+
+
+def colored_progress_bar(
+    value: float,
+    max_value: float,
+    bar_length: int = 10,
+) -> str:
+    """Полоска другого оттенка (для прочности)."""
+    return progress_bar(
+        value,
+        max_value,
+        bar_length=bar_length,
+        filled_char="█",
+        empty_char="▒",
+    )
+
+
 def status_emoji(
     percent: float,
     threshold_warning: float = config.WARNING_THRESHOLD,

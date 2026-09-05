@@ -22,9 +22,6 @@ def setup(bot: BeaconBot) -> None:
             name="Маяки",
             value=(
                 "`/beacon add` — добавить новый маяк\n"
-                "`/beacon menu` — меню управления маяками\n"
-                "`/beacon refuel` — пополнить топливо маяка\n"
-                "`/beacon status` — статус маяка\n"
                 "`/beacon edit` — редактировать маяк\n"
                 "`/beacon delete` — удалить маяк\n"
                 "`/beacon clear` — удалить все маяки (модерация)"
