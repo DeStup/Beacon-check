@@ -214,42 +214,65 @@ async def _ensure_thread_for_message(
     if thread_id:
         thread = bot.get_channel(thread_id)
         if isinstance(thread, discord.Thread):
-            try:
-                if thread.archived:
-                    await thread.edit(archived=False)
-                return thread
-            except discord.HTTPException:
-                pass
+            ready = await prepare_thread_for_send(thread)
+            if ready is not None:
+                return ready
         try:
             fetched = await bot.fetch_channel(thread_id)
             if isinstance(fetched, discord.Thread):
-                if fetched.archived:
-                    await fetched.edit(archived=False)
-                return fetched
+                return await prepare_thread_for_send(fetched)
         except (discord.NotFound, discord.HTTPException):
             pass
 
     if message.thread is not None:
-        thread = message.thread
-        try:
-            if thread.archived:
-                await thread.edit(archived=False)
-        except discord.HTTPException:
-            pass
-        return thread
+        return await prepare_thread_for_send(message.thread)
 
     try:
-        return await message.create_thread(
+        thread = await message.create_thread(
             name=BEACON_THREAD_NAME,
             auto_archive_duration=10080,
             reason="Ветка локаций панели маяков",
         )
+        return await prepare_thread_for_send(thread)
     except discord.HTTPException as exc:
         error_logger.error(
             f"Не удалось создать ветку панели маяков: {exc}",
             exc_info=True,
         )
         return None
+
+
+async def prepare_thread_for_send(
+    thread: discord.Thread,
+) -> discord.Thread | None:
+    """Разархивирует ветку и присоединяет бота (иначе часто 403)."""
+    try:
+        if thread.archived or thread.locked:
+            await thread.edit(archived=False, locked=False)
+    except discord.Forbidden:
+        error_logger.error(
+            f"Нет прав разархивировать/разблокировать ветку {thread.id}"
+        )
+        return None
+    except discord.HTTPException as exc:
+        error_logger.error(
+            f"Не удалось открыть ветку {thread.id}: {exc}",
+            exc_info=True,
+        )
+        return None
+
+    try:
+        await thread.join()
+    except discord.Forbidden:
+        error_logger.error(
+            f"Нет прав присоединиться к ветке {thread.id}"
+        )
+        return None
+    except discord.HTTPException:
+        # Уже участник / не требуется
+        pass
+
+    return thread
 
 
 async def refresh_beacon_panel(
@@ -352,7 +375,14 @@ async def ensure_beacon_panel(bot: BeaconBot) -> None:
 
 async def get_beacon_panel_thread(bot: BeaconBot) -> discord.Thread | None:
     """Ветка панели для сообщений с локациями маяков."""
-    await ensure_beacon_panel(bot)
+    from handlers.views.menu import BeaconPanelView
+
+    if not getattr(bot, "_beacon_panel_view_registered", False):
+        bot.add_view(BeaconPanelView())
+        setattr(bot, "_beacon_panel_view_registered", True)
+
+    # Не редактируем панель здесь — только наличие сообщения/ветки
+    await refresh_beacon_panel(bot, edit_existing=False)
     saved = db.get_beacon_panel()
     if saved is None:
         return None
@@ -363,7 +393,7 @@ async def get_beacon_panel_thread(bot: BeaconBot) -> discord.Thread | None:
     try:
         message = await channel.fetch_message(message_id)
     except (discord.NotFound, discord.HTTPException):
-        await refresh_beacon_panel(bot)
+        await refresh_beacon_panel(bot, edit_existing=False)
         saved = db.get_beacon_panel()
         if saved is None:
             return None

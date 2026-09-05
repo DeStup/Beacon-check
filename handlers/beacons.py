@@ -149,7 +149,18 @@ def setup(bot: BeaconBot) -> None:
             file = await image.to_file(filename=filename)
             embed.set_image(url=f"attachment://{filename}")
 
-            sent_message = await thread.send(embed=embed, file=file)
+            try:
+                sent_message = await thread.send(embed=embed, file=file)
+            except discord.Forbidden:
+                await interaction.followup.send(
+                    "❌ Боту не хватает прав во ветке панели маяков.\n"
+                    "Нужны: **Просмотр канала**, **Писать в ветках**, "
+                    "**Прикреплять файлы**, **Встраивать ссылки**, "
+                    "**Создавать публичные ветки**, **Управлять ветками**.",
+                    ephemeral=True,
+                )
+                return
+
             db.insert_beacon(
                 beacon_id=beacon_id,
                 current_fuel=current_fuel,
@@ -185,6 +196,23 @@ def setup(bot: BeaconBot) -> None:
             )
             await send(
                 f"❌ Маяк {beacon_id} уже существует!",
+                ephemeral=True,
+            )
+        except discord.Forbidden as exc:
+            error_logger.error(
+                f"{user_info} Forbidden при создании маяка: {exc}",
+                exc_info=True,
+            )
+            send = (
+                interaction.followup.send
+                if interaction.response.is_done()
+                else interaction.response.send_message
+            )
+            await send(
+                "❌ Боту не хватает прав в канале/ветке панели маяков.\n"
+                "Нужны: **Просмотр канала**, **Писать в ветках**, "
+                "**Прикреплять файлы**, **Встраивать ссылки**, "
+                "**Создавать публичные ветки**, **Управлять ветками**.",
                 ephemeral=True,
             )
         except Exception as exc:
