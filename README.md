@@ -58,7 +58,6 @@ docker compose up -d
 
 - `/beacon add|menu|refuel|status|edit|delete|clear`
 - `/relic start|cancel|status`
-- `/upkeep status`
 - `/timer add|status`
 - `/help` `/ping`
 

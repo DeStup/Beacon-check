@@ -51,14 +51,6 @@ def setup(bot: BeaconBot) -> None:
             inline=False,
         )
         embed.add_field(
-            name="Содержание",
-            value=(
-                "`/upkeep status` — создать или обновить "
-                "панель Новгорода в канале"
-            ),
-            inline=False,
-        )
-        embed.add_field(
             name="Прочее",
             value=(
                 "`/ping` — проверка, что бот жив\n"
