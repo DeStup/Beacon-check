@@ -102,12 +102,12 @@ def snapshot_upkeep(row: Any) -> dict[str, Any]:
 def format_hours_left_display(hours_left: float) -> str:
     if hours_left == float("inf"):
         return "∞ (расход 0)"
+    if hours_left <= 0:
+        return "гниёт"
     text = format_duration_hours(hours_left)
-    if hours_left > 0 and hours_left != float("inf"):
-        deplete_at = datetime.now() + timedelta(hours=hours_left)
-        unix = int(deplete_at.timestamp())
-        return f"{text} (<t:{unix}:R>)"
-    return text
+    deplete_at = datetime.now() + timedelta(hours=hours_left)
+    unix = int(deplete_at.timestamp())
+    return f"{text} (<t:{unix}:R>)"
 
 
 def format_upkeep_status_table(snaps: list[dict[str, Any]]) -> str:
@@ -119,17 +119,20 @@ def format_upkeep_status_table(snaps: list[dict[str, Any]]) -> str:
             mark = "⚠️ "
         else:
             mark = ""
-        if snap["hours_left"] == float("inf"):
-            left = "∞"
-        else:
-            left = format_duration_hours(snap["hours_left"])
         rate = display_silver_rate(snap["silver_per_hour"])
         stock = display_silver_amount(snap["silver_amount"])
+        if stock == 0:
+            time_part = "💀`гниёт`"
+        elif snap["hours_left"] == float("inf"):
+            time_part = "⏳`∞`"
+        else:
+            left = format_duration_hours(snap["hours_left"])
+            time_part = f"⏳`{left}`"
         lines.append(
             f"{mark}**{name}**\n"
             f"{config.SILVER_EMOJI}`{stock}`"
             f"\u2003⬇️`{rate}`/ч"
-            f"\u2003⏳`{left}`"
+            f"\u2003{time_part}"
         )
     return "\n".join(lines)
 
@@ -163,7 +166,7 @@ def build_upkeep_status_embed(
     if 0 < hours_left < config.UPKEEP_WARNING_HOURS:
         left_name = "⚠️ Хватит на"
     elif hours_left <= 0:
-        left_name = "💀 Хватит на"
+        left_name = "💀 Статус"
     embed.add_field(
         name=left_name,
         value=format_hours_left_display(hours_left),
@@ -310,19 +313,16 @@ async def _check_upkeep_alerts(
 
     if low and not warned:
         if channel:
-            left_text = format_hours_left_display(hours_left)
             if hours_left <= 0:
                 await channel.send(
-                    f"💀 Серебро закончилось! **{name}** — "
-                    f"содержание {display_silver_rate(rate)}/ч, "
-                    f"склад {display_silver_amount(silver)}"
+                    f"💀 Закончилось серебро у **{name}**"
                 )
             else:
+                deplete_at = datetime.now() + timedelta(hours=hours_left)
+                unix = int(deplete_at.timestamp())
                 await channel.send(
-                    f"⚠️ Мало серебра на содержание! **{name}** — "
-                    f"содержание {display_silver_rate(rate)}/ч, "
-                    f"склад {display_silver_amount(silver)}, "
-                    f"хватит на {left_text}"
+                    f"⚠️ Мало серебра на содержание у **{name}**, "
+                    f"закончится (<t:{unix}:R>)"
                 )
         db.set_upkeep_low_warning(object_id, True)
         system_logger.info(
