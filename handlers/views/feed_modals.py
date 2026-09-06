@@ -17,6 +17,7 @@ from services.feed_service import (
 )
 from utils.formatting import get_user_info
 from utils.logging_setup import error_logger, feed_logger
+from utils.permissions import can_delete_owned
 
 
 def _error_embed(description: str) -> discord.Embed:
@@ -63,7 +64,7 @@ class AddFeedModal(Modal):
                 name=name,
                 animal_type=animal_type,
                 satiety=config.FEED_MAX_SATIETY,
-                created_by=interaction.user.name,
+                created_by=str(interaction.user.id),
             )
             feed_logger.info(
                 f"{get_user_info(interaction)} added feed "
@@ -224,6 +225,15 @@ class DeleteFeedModal(Modal, title="🗑️ Удалить животное"):
         if not row:
             await interaction.response.send_message(
                 embed=_error_embed(f"Животное **{name}** не найдено!"),
+                ephemeral=True,
+            )
+            return
+        if not can_delete_owned(interaction.user, row["created_by"]):
+            await interaction.response.send_message(
+                embed=_error_embed(
+                    "Удалять можно только своих животных "
+                    "или при правах модерации."
+                ),
                 ephemeral=True,
             )
             return

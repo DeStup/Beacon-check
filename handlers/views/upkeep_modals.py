@@ -17,6 +17,7 @@ from services.upkeep_service import (
 )
 from utils.formatting import get_user_info
 from utils.logging_setup import error_logger, upkeep_logger
+from utils.permissions import can_delete_owned
 
 
 def _parse_positive_float(raw: str, *, field: str) -> float:
@@ -94,7 +95,7 @@ class AddUpkeepModal(Modal, title="➕ Добавить объект содер�
                 name=name,
                 silver_per_hour=rate,
                 silver_amount=amount,
-                created_by=interaction.user.name,
+                created_by=str(interaction.user.id),
             )
             upkeep_logger.info(
                 f"{get_user_info(interaction)} added upkeep {name} | "
@@ -259,6 +260,16 @@ class DeleteUpkeepModal(Modal, title="🗑️ Удалить содержани�
         if not row:
             await interaction.response.send_message(
                 embed=_error_embed(f"Объект **{name}** не найден!"),
+                ephemeral=True,
+            )
+            return
+
+        if not can_delete_owned(interaction.user, row["created_by"]):
+            await interaction.response.send_message(
+                embed=_error_embed(
+                    "Удалять можно только свои объекты "
+                    "или при правах модерации."
+                ),
                 ephemeral=True,
             )
             return

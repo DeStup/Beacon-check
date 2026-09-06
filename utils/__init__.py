@@ -7,6 +7,7 @@ from utils.formatting import (
     get_user_info,
     priority_emoji,
     rate_from_priority,
+    type_from_rate,
 )
 from utils.logging_setup import (
     action_logger,
@@ -20,13 +21,16 @@ from utils.logging_setup import (
 )
 from utils.permissions import (
     can_clear_beacons,
+    can_delete_owned,
     can_manage_upkeep,
     is_moderator,
+    is_record_creator,
 )
 
 __all__ = [
     "action_logger",
     "can_clear_beacons",
+    "can_delete_owned",
     "can_manage_upkeep",
     "error_logger",
     "feed_logger",
@@ -34,6 +38,7 @@ __all__ = [
     "format_priority",
     "get_user_info",
     "is_moderator",
+    "is_record_creator",
     "priority_emoji",
     "progress_bar",
     "rate_from_priority",
@@ -42,5 +47,6 @@ __all__ = [
     "setup_logging",
     "system_logger",
     "status_emoji",
+    "type_from_rate",
     "upkeep_logger",
 ]

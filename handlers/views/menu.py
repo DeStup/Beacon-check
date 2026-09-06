@@ -15,6 +15,7 @@ from services.beacon_service import (
 )
 from utils.formatting import get_user_info
 from utils.logging_setup import action_logger
+from utils.permissions import can_delete_owned, can_manage_upkeep
 
 
 async def open_beacon_select(
@@ -28,12 +29,22 @@ async def open_beacon_select(
 ) -> None:
     """Общий хелпер: выбор маяка или сообщение об отсутствии."""
     beacons = db.list_beacons_summary()
+    if action == "delete" and not can_manage_upkeep(interaction.user):
+        beacons = [
+            row
+            for row in beacons
+            if can_delete_owned(
+                interaction.user,
+                row["created_by"],
+                row["username"],
+            )
+        ]
     if not beacons:
         await interaction.response.send_message(empty_message, ephemeral=True)
         return
 
     embed = discord.Embed(title=title, description=description, color=color)
-    view = BeaconSelectView(action, interaction.user.id, beacons)
+    view = BeaconSelectView(action, interaction.user.id, beacons, interaction)
     await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
 
@@ -119,7 +130,10 @@ class BeaconPanelView(View):
             action="delete",
             title="🗑️ Удаление маяка",
             description="Выберите маяк из списка ниже:",
-            empty_message="❌ Нет активных маяков для удаления!",
+            empty_message=(
+                "❌ Нет маяков, которые вы можете удалить "
+                "(свои или при правах модерации)!"
+            ),
             color=discord.Color.red(),
         )
 

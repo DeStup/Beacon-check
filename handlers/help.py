@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 import discord
 
+import config
+
 if TYPE_CHECKING:
     from bot import BeaconBot
 
@@ -32,7 +34,8 @@ def setup(bot: BeaconBot) -> None:
             name="Таймер Реликвии",
             value=(
                 "`/relic start` — запустить таймер появления Реликвии "
-                "(по умолчанию 90 минут)\n"
+                f"(мин. {config.MIN_RELIC_MINUTES}, по умолчанию "
+                f"{config.DEFAULT_RELIC_MINUTES} минут)\n"
                 "`/relic cancel` — отменить таймер Реликвии\n"
                 "`/relic status` — статус таймера Реликвии"
             ),

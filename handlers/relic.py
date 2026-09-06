@@ -38,7 +38,10 @@ def setup(bot: BeaconBot) -> None:
         ),
     )
     @app_commands.describe(
-        minutes="Время до появления реликвии в минутах (по умолчанию 90)"
+        minutes=(
+            f"Время до появления (мин. {config.MIN_RELIC_MINUTES}, "
+            f"по умолчанию {config.DEFAULT_RELIC_MINUTES})"
+        )
     )
     async def start(
         interaction: discord.Interaction,
@@ -57,9 +60,9 @@ def setup(bot: BeaconBot) -> None:
             return
 
         if minutes is not None:
-            if minutes < 1:
+            if minutes < config.MIN_RELIC_MINUTES:
                 await interaction.response.send_message(
-                    "❌ Время должно быть больше 0 минут!",
+                    f"❌ Минимум {config.MIN_RELIC_MINUTES} минут!",
                     ephemeral=True,
                 )
                 return
@@ -75,7 +78,10 @@ def setup(bot: BeaconBot) -> None:
             class RestartMinutesModal(Modal, title="🔄 Перезапуск таймера"):
                 minutes_input = TextInput(
                     label="Минуты до появления реликвии",
-                    placeholder=f"1–{config.MAX_RELIC_MINUTES}, например 90",
+                    placeholder=(
+                        f"{config.MIN_RELIC_MINUTES}–"
+                        f"{config.MAX_RELIC_MINUTES}, например 90"
+                    ),
                     required=True,
                     min_length=1,
                     max_length=4,
@@ -106,9 +112,9 @@ def setup(bot: BeaconBot) -> None:
                         )
                         return
 
-                    if new_minutes < 1:
+                    if new_minutes < config.MIN_RELIC_MINUTES:
                         await modal_interaction.response.send_message(
-                            "❌ Время должно быть больше 0 минут!",
+                            f"❌ Минимум {config.MIN_RELIC_MINUTES} минут!",
                             ephemeral=True,
                         )
                         return

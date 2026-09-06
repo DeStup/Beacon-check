@@ -24,9 +24,13 @@ from services.upkeep_service import (
     refresh_upkeep_panel,
     snapshot_upkeep,
 )
-from utils.formatting import format_duration_hours, get_user_info
+from utils.formatting import (
+    delete_select_message,
+    format_duration_hours,
+    get_user_info,
+)
 from utils.logging_setup import error_logger, upkeep_logger
-from utils.permissions import can_manage_upkeep
+from utils.permissions import can_delete_owned, can_manage_upkeep
 
 
 def _notice_embed(
@@ -51,16 +55,14 @@ async def open_upkeep_select(
     description: str,
     empty_message: str,
     color: discord.Color = discord.Color.blue(),
-    require_mod: bool = False,
 ) -> None:
-    if require_mod and not can_manage_upkeep(interaction.user):
-        await interaction.response.send_message(
-            embed=_notice_embed("Недостаточно прав (нужна модерация)."),
-            ephemeral=True,
-        )
-        return
-
     rows = db.list_upkeep_summary()
+    if action == "delete" and not can_manage_upkeep(interaction.user):
+        rows = [
+            row
+            for row in rows
+            if can_delete_owned(interaction.user, row["created_by"])
+        ]
     if not rows:
         await interaction.response.send_message(
             embed=_notice_embed(
@@ -73,7 +75,7 @@ async def open_upkeep_select(
         return
 
     embed = discord.Embed(title=title, description=description, color=color)
-    view = UpkeepSelectView(action, interaction.user.id, rows)
+    view = UpkeepSelectView(action, interaction.user.id, rows, interaction)
     await interaction.response.send_message(
         embed=embed, view=view, ephemeral=True
     )
@@ -307,10 +309,12 @@ class UpkeepSelectView(View):
         action_type: str,
         user_id: int,
         rows: Sequence[Row],
+        source_interaction: discord.Interaction,
     ) -> None:
         super().__init__(timeout=60)
         self.action_type = action_type
         self.user_id = user_id
+        self.source_interaction = source_interaction
         self.add_item(UpkeepSelect(action_type, rows))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -370,7 +374,14 @@ class UpkeepSelect(Select):
             options=options,
         )
 
+    def _source(self) -> discord.Interaction | None:
+        view = self.view
+        if isinstance(view, UpkeepSelectView):
+            return view.source_interaction
+        return None
+
     async def callback(self, interaction: discord.Interaction) -> None:
+        source = self._source()
         value = self.values[0]
         if value == "none":
             await interaction.response.send_message(
@@ -381,6 +392,8 @@ class UpkeepSelect(Select):
                 ),
                 ephemeral=True,
             )
+            if source is not None:
+                await delete_select_message(source)
             return
 
         if self.action_type == "status":
@@ -388,21 +401,37 @@ class UpkeepSelect(Select):
                 await show_all_upkeep_status(interaction)
             else:
                 await show_upkeep_status(interaction, value)
+            if source is not None:
+                await delete_select_message(source)
             return
 
         if self.action_type == "edit":
             await interaction.response.send_modal(EditUpkeepModal(value))
+            if source is not None:
+                await delete_select_message(source)
             return
         if self.action_type == "delete":
-            if not can_manage_upkeep(interaction.user):
+            row = db.get_upkeep_by_name(value)
+            if not row:
+                await interaction.response.send_message(
+                    embed=_notice_embed(f"Объект **{value}** не найден!"),
+                    ephemeral=True,
+                )
+                if source is not None:
+                    await delete_select_message(source)
+                return
+            if not can_delete_owned(interaction.user, row["created_by"]):
                 await interaction.response.send_message(
                     embed=_notice_embed(
-                        "Недостаточно прав (нужна модерация)."
+                        "Удалять можно только свои объекты "
+                        "или при правах модерации."
                     ),
                     ephemeral=True,
                 )
                 return
             await interaction.response.send_modal(DeleteUpkeepModal(value))
+            if source is not None:
+                await delete_select_message(source)
             return
 
 
@@ -484,10 +513,12 @@ class UpkeepMenuView(View):
             interaction,
             action="delete",
             title="🗑️ Удаление содержания",
-            description="Выберите объект (модерация):",
-            empty_message="Нет объектов для удаления!",
+            description="Выберите объект (свой или модерация):",
+            empty_message=(
+                "Нет объектов, которые вы можете удалить "
+                "(свои или при правах модерации)!"
+            ),
             color=discord.Color.red(),
-            require_mod=True,
         )
 
     @discord.ui.button(

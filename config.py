@@ -50,10 +50,10 @@ SILVER_EMOJI: str = custom_emoji("silver", SILVER_EMOJI_ID)
 MAX_FUEL: float = 30.0
 MAX_LIFETIME: float = 100.0
 
-# Типы маяков: Фронтовой (= старый приоритет 1), Тыловой (= старый приоритет 3)
-# Значение — часы на 1 единицу топлива
+# Типы маяков: 1 = Фронтовой, 2 = Тыловой
+# Значение rate — часы на 1 единицу топлива
 BEACON_TYPE_FRONT: int = 1
-BEACON_TYPE_REAR: int = 3
+BEACON_TYPE_REAR: int = 2
 BEACON_TYPE_LABELS: dict[int, str] = {
     BEACON_TYPE_FRONT: "Фронтовой",
     BEACON_TYPE_REAR: "Тыловой",
@@ -70,6 +70,7 @@ WARNING_THRESHOLD: float = 20.0
 CRITICAL_THRESHOLD: float = 5.0
 
 DEFAULT_RELIC_MINUTES: int = 90
+MIN_RELIC_MINUTES: int = 15
 MAX_RELIC_MINUTES: int = 1440
 RELIC_WARNING_MINUTES: int = 10
 # Сколько минут после появления реликвии держать таймер на панели

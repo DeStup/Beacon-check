@@ -23,9 +23,9 @@ from services.feed_service import (
     refresh_feed_panel,
     snapshot_feed,
 )
-from utils.formatting import get_user_info
+from utils.formatting import delete_select_message, get_user_info
 from utils.logging_setup import feed_logger
-from utils.permissions import can_manage_upkeep
+from utils.permissions import can_delete_owned, can_manage_upkeep
 
 
 def _notice_embed(
@@ -40,8 +40,9 @@ def _notice_embed(
 class AddAnimalTypeView(View):
     """Фиксированный выбор типа перед модалкой имени."""
 
-    def __init__(self) -> None:
+    def __init__(self, source_interaction: discord.Interaction) -> None:
         super().__init__(timeout=120)
+        self.source_interaction = source_interaction
         options = [
             discord.SelectOption(
                 label=animal_label(key),
@@ -69,6 +70,9 @@ class AddAnimalTypeSelect(Select):
     async def callback(self, interaction: discord.Interaction) -> None:
         animal_type = self.values[0]
         await interaction.response.send_modal(AddFeedModal(animal_type))
+        view = self.view
+        if isinstance(view, AddAnimalTypeView):
+            await delete_select_message(view.source_interaction)
 
 
 async def open_feed_select(
@@ -79,16 +83,14 @@ async def open_feed_select(
     description: str,
     empty_message: str,
     color: discord.Color = discord.Color.blue(),
-    require_mod: bool = False,
 ) -> None:
-    if require_mod and not can_manage_upkeep(interaction.user):
-        await interaction.response.send_message(
-            embed=_notice_embed("Недостаточно прав (нужна модерация)."),
-            ephemeral=True,
-        )
-        return
-
     rows = db.list_feed_summary()
+    if action == "delete" and not can_manage_upkeep(interaction.user):
+        rows = [
+            row
+            for row in rows
+            if can_delete_owned(interaction.user, row["created_by"])
+        ]
     if not rows:
         await interaction.response.send_message(
             embed=_notice_embed(
@@ -101,7 +103,7 @@ async def open_feed_select(
         return
 
     embed = discord.Embed(title=title, description=description, color=color)
-    view = FeedSelectView(action, interaction.user.id, rows)
+    view = FeedSelectView(action, interaction.user.id, rows, interaction)
     await interaction.response.send_message(
         embed=embed, view=view, ephemeral=True
     )
@@ -202,10 +204,12 @@ class FeedSelectView(View):
         action_type: str,
         requester_id: int,
         rows: Sequence[Row],
+        source_interaction: discord.Interaction,
     ) -> None:
         super().__init__(timeout=120)
         self.action_type = action_type
         self.requester_id = requester_id
+        self.source_interaction = source_interaction
         options: list[discord.SelectOption] = []
         for row in rows[:25]:
             snap = snapshot_feed(row)
@@ -251,21 +255,42 @@ class FeedSelect(Select):
         self.action_type = action_type
         self.requester_id = requester_id
 
+    def _source(self) -> discord.Interaction | None:
+        view = self.view
+        if isinstance(view, FeedSelectView):
+            return view.source_interaction
+        return None
+
     async def callback(self, interaction: discord.Interaction) -> None:
+        source = self._source()
         value = self.values[0]
         if self.action_type == "edit":
             await interaction.response.send_modal(EditFeedModal(value))
+            if source is not None:
+                await delete_select_message(source)
             return
         if self.action_type == "delete":
-            if not can_manage_upkeep(interaction.user):
+            row = db.get_feed_by_name(value)
+            if not row:
+                await interaction.response.send_message(
+                    embed=_notice_embed(f"Животное **{value}** не найдено!"),
+                    ephemeral=True,
+                )
+                if source is not None:
+                    await delete_select_message(source)
+                return
+            if not can_delete_owned(interaction.user, row["created_by"]):
                 await interaction.response.send_message(
                     embed=_notice_embed(
-                        "Недостаточно прав (нужна модерация)."
+                        "Удалять можно только своих животных "
+                        "или при правах модерации."
                     ),
                     ephemeral=True,
                 )
                 return
             await interaction.response.send_modal(DeleteFeedModal(value))
+            if source is not None:
+                await delete_select_message(source)
             return
 
 
@@ -294,7 +319,7 @@ class FeedMenuView(View):
         )
         await interaction.response.send_message(
             embed=embed,
-            view=AddAnimalTypeView(),
+            view=AddAnimalTypeView(interaction),
             ephemeral=True,
         )
 
@@ -356,10 +381,12 @@ class FeedMenuView(View):
             interaction,
             action="delete",
             title="🗑️ Удаление",
-            description="Выберите животное (модерация):",
-            empty_message="Нет животных для удаления!",
+            description="Выберите животное (своё или модерация):",
+            empty_message=(
+                "Нет животных, которые вы можете удалить "
+                "(свои или при правах модерации)!"
+            ),
             color=discord.Color.red(),
-            require_mod=True,
         )
 
     @discord.ui.button(

@@ -27,7 +27,10 @@ class RelicMinutesModal(Modal):
         self.restarted = restarted
         self.minutes_input = TextInput(
             label="Минуты до появления реликвии",
-            placeholder=f"1–{config.MAX_RELIC_MINUTES}, например 90",
+            placeholder=(
+                f"{config.MIN_RELIC_MINUTES}–{config.MAX_RELIC_MINUTES}, "
+                f"например 90"
+            ),
             required=True,
             min_length=1,
             max_length=4,
@@ -47,9 +50,9 @@ class RelicMinutesModal(Modal):
             )
             return
 
-        if minutes < 1:
+        if minutes < config.MIN_RELIC_MINUTES:
             await interaction.response.send_message(
-                "❌ Время должно быть больше 0 минут!",
+                f"❌ Минимум {config.MIN_RELIC_MINUTES} минут!",
                 ephemeral=True,
             )
             return

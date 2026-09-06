@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import discord
 
 import config
 
-if TYPE_CHECKING:
-    import discord
+
+async def delete_select_message(
+    source_interaction: discord.Interaction,
+) -> None:
+    """Удаляет ephemeral со списком — ответ interaction, который его создал."""
+    try:
+        await source_interaction.delete_original_response()
+    except discord.HTTPException:
+        pass
 
 
 def get_user_info(interaction: discord.Interaction) -> str:
@@ -16,11 +23,21 @@ def get_user_info(interaction: discord.Interaction) -> str:
 
 
 def rate_from_priority(priority: int) -> float:
-    """Преобразует тип маяка (1 / 3) в fuel_consumption_rate."""
+    """Преобразует тип маяка (1 / 2) в fuel_consumption_rate."""
+    if priority == 3:  # legacy «тыловой»
+        priority = config.BEACON_TYPE_REAR
     return config.PRIORITY_RATES.get(
         priority,
         config.PRIORITY_RATES[config.BEACON_TYPE_REAR],
     )
+
+
+def type_from_rate(rate: float) -> int:
+    """Тип маяка (1 / 2) по fuel_consumption_rate."""
+    front_rate = config.PRIORITY_RATES[config.BEACON_TYPE_FRONT]
+    if rate == front_rate:
+        return config.BEACON_TYPE_FRONT
+    return config.BEACON_TYPE_REAR
 
 
 def format_priority(rate: float, *, with_number: bool = False) -> str:

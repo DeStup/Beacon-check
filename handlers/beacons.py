@@ -150,7 +150,11 @@ def setup(bot: BeaconBot) -> None:
             embed.set_image(url=f"attachment://{filename}")
 
             try:
-                sent_message = await thread.send(embed=embed, file=file)
+                sent_message = await thread.send(
+                    content=f"Добавил: {interaction.user.display_name}",
+                    embed=embed,
+                    file=file,
+                )
             except discord.Forbidden:
                 await interaction.followup.send(
                     "❌ Боту не хватает прав во ветке панели маяков.\n"
@@ -168,6 +172,7 @@ def setup(bot: BeaconBot) -> None:
                 fuel_consumption_rate=rate,
                 message_link=sent_message.jump_url,
                 username=username,
+                created_by=user_id,
             )
             db.increment_user_stat(user_id, username, "created")
             await refresh_beacon_panel(bot)  # type: ignore[arg-type]
@@ -244,7 +249,10 @@ def setup(bot: BeaconBot) -> None:
             action="delete",
             title="🗑️ Удаление маяка",
             description="Выберите маяк из списка ниже:",
-            empty_message="❌ Нет активных маяков для удаления!",
+            empty_message=(
+                "❌ Нет маяков, которые вы можете удалить "
+                "(свои или при правах модерации)!"
+            ),
             color=discord.Color.red(),
         )
 

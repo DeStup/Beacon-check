@@ -43,10 +43,19 @@ def init_db() -> None:
                 low_status_sent BOOLEAN DEFAULT FALSE,
                 message_link TEXT,
                 username TEXT,
-                image_url TEXT
+                image_url TEXT,
+                created_by TEXT
             )
             """
         )
+        beacon_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(beacons)")
+        }
+        if "created_by" not in beacon_columns:
+            conn.execute(
+                "ALTER TABLE beacons ADD COLUMN created_by TEXT"
+            )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -197,7 +206,8 @@ def list_upkeep_summary() -> list[Row]:
         return list(
             conn.execute(
                 """
-                SELECT id, name, silver_per_hour, silver_amount, last_updated
+                SELECT id, name, silver_per_hour, silver_amount, last_updated,
+                       created_by
                 FROM upkeep_objects
                 ORDER BY id ASC
                 """
@@ -473,7 +483,7 @@ def list_feed_summary() -> list[Row]:
         return list(
             conn.execute(
                 """
-                SELECT id, name, animal_type, satiety, last_updated
+                SELECT id, name, animal_type, satiety, last_updated, created_by
                 FROM feed_animals
                 ORDER BY id ASC
                 """
@@ -709,7 +719,8 @@ def list_beacons_summary() -> list[Row]:
         return list(
             conn.execute(
                 """
-                SELECT beacon_id, current_fuel, current_lifetime, fuel_consumption_rate
+                SELECT beacon_id, current_fuel, current_lifetime,
+                       fuel_consumption_rate, username, created_by
                 FROM beacons
                 ORDER BY beacon_id
                 """
@@ -747,14 +758,15 @@ def insert_beacon(
     fuel_consumption_rate: float,
     message_link: str,
     username: str,
+    created_by: Optional[str] = None,
 ) -> None:
     with get_connection() as conn:
         conn.execute(
             """
             INSERT INTO beacons (
                 beacon_id, current_fuel, current_lifetime, fuel_consumption_rate,
-                last_updated, low_status_sent, message_link, username
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                last_updated, low_status_sent, message_link, username, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 beacon_id,
@@ -765,6 +777,7 @@ def insert_beacon(
                 False,
                 message_link,
                 username,
+                created_by,
             ),
         )
 
@@ -774,6 +787,23 @@ def delete_beacon(beacon_id: str) -> bool:
         cursor = conn.execute(
             "DELETE FROM beacons WHERE beacon_id = ?",
             (beacon_id,),
+        )
+        return cursor.rowcount > 0
+
+
+def rename_beacon(old_id: str, new_id: str) -> bool:
+    """Переименовывает маяк. False если старый не найден или новый уже есть."""
+    if old_id == new_id:
+        return True
+    with get_connection() as conn:
+        if conn.execute(
+            "SELECT 1 FROM beacons WHERE beacon_id = ? LIMIT 1",
+            (new_id,),
+        ).fetchone():
+            return False
+        cursor = conn.execute(
+            "UPDATE beacons SET beacon_id = ? WHERE beacon_id = ?",
+            (new_id, old_id),
         )
         return cursor.rowcount > 0
 
