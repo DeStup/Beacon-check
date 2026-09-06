@@ -22,12 +22,7 @@ def setup(bot: BeaconBot) -> None:
         )
         embed.add_field(
             name="Маяки",
-            value=(
-                "`/beacon add` — добавить новый маяк\n"
-                "`/beacon edit` — редактировать маяк\n"
-                "`/beacon delete` — удалить маяк\n"
-                "`/beacon clear` — удалить все маяки (модерация)"
-            ),
+            value="`/beacon add` — добавить новый маяк",
             inline=False,
         )
         embed.add_field(
@@ -35,9 +30,7 @@ def setup(bot: BeaconBot) -> None:
             value=(
                 "`/relic start` — запустить таймер появления Реликвии "
                 f"(мин. {config.MIN_RELIC_MINUTES}, по умолчанию "
-                f"{config.DEFAULT_RELIC_MINUTES} минут)\n"
-                "`/relic cancel` — отменить таймер Реликвии\n"
-                "`/relic status` — статус таймера Реликвии"
+                f"{config.DEFAULT_RELIC_MINUTES} минут)"
             ),
             inline=False,
         )

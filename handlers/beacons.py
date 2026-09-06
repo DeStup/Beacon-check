@@ -9,8 +9,6 @@ import discord
 from discord import app_commands
 
 import config
-from handlers.views.clear import prompt_clear_all_beacons
-from handlers.views.menu import open_beacon_select
 from services import database as db
 from services.beacon_service import get_beacon_panel_thread, refresh_beacon_panel
 from utils.formatting import get_user_info, rate_from_priority
@@ -231,39 +229,6 @@ def setup(bot: BeaconBot) -> None:
                 else interaction.response.send_message
             )
             await send(f"❌ Ошибка: {exc}", ephemeral=True)
-
-    @beacon.command(name="edit", description="Редактировать данные маяка")
-    async def edit(interaction: discord.Interaction) -> None:
-        await open_beacon_select(
-            interaction,
-            action="edit",
-            title="✏️ Редактирование маяка",
-            description="Выберите маяк из списка ниже:",
-            empty_message="❌ Нет активных маяков для редактирования!",
-        )
-
-    @beacon.command(name="delete", description="Удалить маяк")
-    async def delete(interaction: discord.Interaction) -> None:
-        await open_beacon_select(
-            interaction,
-            action="delete",
-            title="🗑️ Удаление маяка",
-            description="Выберите маяк из списка ниже:",
-            empty_message=(
-                "❌ Нет маяков, которые вы можете удалить "
-                "(свои или при правах модерации)!"
-            ),
-            color=discord.Color.red(),
-        )
-
-    @beacon.command(name="clear", description="Удалить все маяки")
-    async def clear(interaction: discord.Interaction) -> None:
-        await prompt_clear_all_beacons(
-            interaction,
-            yes_label="Да",
-            no_label="Нет",
-            slash_button_styles=True,
-        )
 
     bot.tree.add_command(beacon)
 
