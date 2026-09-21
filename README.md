@@ -6,6 +6,138 @@ Discord-бот для гильдии в **Anvil Empires**: учёт маяков
 
 ---
 
+## Как поднять бота
+
+### 1. Discord Application
+
+1. [Discord Developer Portal](https://discord.com/developers/applications) → New Application.
+2. **Bot** → Reset Token → скопировать токен (`TOKEN`).
+3. Включить Privileged Gateway Intent: **Message Content Intent**.
+4. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`.
+5. Права бота (минимум):
+   - View Channels, Send Messages, Embed Links, Attach Files
+   - Manage Messages (по желанию)
+   - Create Public Threads, Send Messages in Threads, Manage Threads (для панели маяков)
+   - Mention Everyone / роли — если нужен пинг `RELIC_QRF_ROLE_ID`
+6. Пригласить бота на сервер. Скопировать ID сервера (`GUILD`) — Developer Mode → ПКМ по серверу → Copy Server ID.
+7. Аналогично скопировать ID каналов и роли.
+
+### 2. Каналы и роли
+
+| Переменная | Куда указать |
+|------------|--------------|
+| `PANEL_CHANNEL_ID` | Канал постоянных панелей (маяки, upkeep, кормёжка, реликвия, сезоны) |
+| `ALERT_CHANNEL_ID` | Канал алертов (низкое топливо, серебро, сытость, смена сезона) |
+| `RELIC_CHANNEL_ID` | Канал уведомлений о реликвии (старт / предупреждение / появление) |
+| `RELIC_QRF_ROLE_ID` | Роль для пинга в предупреждении «скоро реликвия» |
+| `RELIC_LINK_MESSAGE_ROLES` | Ссылка на сообщение с подпиской на роль уведомлений |
+| `SILVER_EMOJI_ID` | ID кастомного эмодзи серебра (опционально) |
+
+Убедитесь, что у бота есть доступ ко всем трём каналам (или совпадающим, если используете один).
+
+### 3. Переменные окружения
+
+Скопируйте `.env.example` → `.env`:
+
+| Переменная | Обязательно | Описание |
+|------------|-------------|----------|
+| `TOKEN` | да | Токен Discord-бота |
+| `GUILD` | да* | ID гильдии для быстрой синхронизации slash-команд |
+| `PANEL_CHANNEL_ID` | да | Канал панелей |
+| `ALERT_CHANNEL_ID` | да | Канал алертов |
+| `RELIC_CHANNEL_ID` | да | Канал реликвии |
+| `RELIC_LINK_MESSAGE_ROLES` | нет | Ссылка на сообщение подписки на роли |
+| `RELIC_QRF_ROLE_ID` | нет | Роль QRF для пинга |
+| `SILVER_EMOJI_ID` | нет | ID эмодзи серебра |
+
+\* Без `GUILD` команды синхронизируются глобально (до ~1 часа задержки).
+
+Legacy-алиасы (если основные не заданы): `UPKEEP_PANEL_CHANNEL_ID`, `RELIC_NOTIFY_MESSAGE_URL`, `RELIC_NOTIFY_MESSAGE_ID`.
+
+### 4. Локальный запуск
+
+```bash
+# Клонировать / открыть репозиторий
+cd beaconMonitor
+
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# Linux / macOS
+# source venv/bin/activate
+
+pip install -r requirements.txt
+
+copy .env.example .env   # Windows
+# cp .env.example .env   # Linux / macOS
+```
+
+Заполнить `.env`, затем:
+
+```bash
+python main.py
+```
+
+В консоли должно появиться `Бот … запущен!`. Slash-команды синхронизируются с гильдией из `GUILD` (обычно сразу видны в Discord).
+
+### 5. Docker
+
+```bash
+# .env уже заполнен в корне проекта
+docker compose build
+docker compose up -d
+```
+
+Тома: `./data`, `./logs`. Порт в compose: `8451` (сам бот — исходящее WebSocket-соединение к Discord).
+
+Проверка логов:
+
+```bash
+docker compose logs -f bot
+```
+
+### 6. Первый запуск — проверка
+
+1. `/ping` → ответ `Pong`.
+2. В `PANEL_CHANNEL_ID` появились панели (маяки, владения, кормёжка, реликвия, время).
+3. `/beacon add` с картинкой → маяк в панели, изображение во ветке.
+4. Кнопки upkeep/feed → объект появляется на панели.
+5. `/relic start` → сообщение в `RELIC_CHANNEL_ID`, панель обновляется.
+6. `/season setup` (модератор) → панель сезонов показывает таймер.
+
+---
+
+## Структура проекта
+
+```
+main.py                 # точка входа
+bot.py                  # BeaconBot (Client + CommandTree + RelicTimer)
+config.py               # .env и игровые константы
+handlers/
+  beacons.py            # /beacon add, /ping
+  relic.py              # /relic start
+  season.py             # /season setup|delete
+  help.py               # /help
+  events.py             # on_ready, старт панелей и фоновых задач
+  views/                # кнопки, модалки, селекты панелей
+services/
+  database.py           # SQLite-схема и CRUD
+  beacon_service.py     # decay маяков, алерты, панель
+  upkeep_service.py     # расход серебра, панель
+  feed_service.py       # сытость, панель
+  relic_service.py      # RelicTimer + панель
+  season_service.py     # смена сезонов, панель
+  panel_service.py      # периодическое восстановление панелей
+utils/                  # логи, embed, права, форматирование
+data/beacons.db         # БД (создаётся при первом запуске)
+logs/                   # actions.log, errors.log
+.env.example            # шаблон переменных окружения
+```
+
+---
+
 ## Концепция
 
 Бот — операционный дашборд для войны и логистики:
@@ -173,110 +305,7 @@ Discord-бот для гильдии в **Anvil Empires**: учёт маяков
 
 ---
 
-## Гайд: поднять бота
-
-### 1. Discord Application
-
-1. [Discord Developer Portal](https://discord.com/developers/applications) → New Application.
-2. **Bot** → Reset Token → скопировать токен (`TOKEN`).
-3. Включить Privileged Gateway Intent: **Message Content Intent**.
-4. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`.
-5. Права бота (минимум):
-   - View Channels, Send Messages, Embed Links, Attach Files
-   - Manage Messages (по желанию)
-   - Create Public Threads, Send Messages in Threads, Manage Threads (для панели маяков)
-   - Mention Everyone / роли — если нужен пинг `RELIC_QRF_ROLE_ID`
-6. Пригласить бота на сервер. Скопировать ID сервера (`GUILD`) — Developer Mode → ПКМ по серверу → Copy Server ID.
-7. Аналогично скопировать ID каналов и роли.
-
-### 2. Каналы и роли
-
-| Переменная | Куда указать |
-|------------|--------------|
-| `PANEL_CHANNEL_ID` | Канал постоянных панелей (маяки, upkeep, кормёжка, реликвия, сезоны) |
-| `ALERT_CHANNEL_ID` | Канал алертов (низкое топливо, серебро, сытость, смена сезона) |
-| `RELIC_CHANNEL_ID` | Канал уведомлений о реликвии (старт / предупреждение / появление) |
-| `RELIC_QRF_ROLE_ID` | Роль для пинга в предупреждении «скоро реликвия» |
-| `RELIC_LINK_MESSAGE_ROLES` | Ссылка на сообщение с подпиской на роль уведомлений |
-| `SILVER_EMOJI_ID` | ID кастомного эмодзи серебра (опционально) |
-
-Убедитесь, что у бота есть доступ ко всем трём каналам (или совпадающим, если используете один).
-
-### 3. Локальный запуск
-
-```bash
-# Клонировать / открыть репозиторий
-cd beaconMonitor
-
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-
-# Linux / macOS
-# source venv/bin/activate
-
-pip install -r requirements.txt
-
-copy .env.example .env   # Windows
-# cp .env.example .env   # Linux / macOS
-```
-
-Заполнить `.env` (см. таблицу ниже), затем:
-
-```bash
-python main.py
-```
-
-В консоли должно появиться `Бот … запущен!`. Slash-команды синхронизируются с гильдией из `GUILD` (обычно сразу видны в Discord).
-
-### 4. Docker
-
-```bash
-# .env уже заполнен в корне проекта
-docker compose build
-docker compose up -d
-```
-
-Тома: `./data`, `./logs`. Порт в compose: `8451` (сам бот — исходящее WebSocket-соединение к Discord).
-
-Проверка логов:
-
-```bash
-docker compose logs -f bot
-```
-
-### 5. Первый запуск — проверка
-
-1. `/ping` → ответ `Pong`.
-2. В `PANEL_CHANNEL_ID` появились панели (маяки, владения, кормёжка, реликвия, время).
-3. `/beacon add` с картинкой → маяк в панели, изображение во ветке.
-4. Кнопки upkeep/feed → объект появляется на панели.
-5. `/relic start` → сообщение в `RELIC_CHANNEL_ID`, панель обновляется.
-6. `/season setup` (модератор) → панель сезонов показывает таймер.
-
----
-
 ## Администрирование
-
-### Переменные окружения
-
-Скопируйте `.env.example` → `.env`:
-
-| Переменная | Обязательно | Описание |
-|------------|-------------|----------|
-| `TOKEN` | да | Токен Discord-бота |
-| `GUILD` | да* | ID гильдии для быстрой синхронизации slash-команд |
-| `PANEL_CHANNEL_ID` | да | Канал панелей |
-| `ALERT_CHANNEL_ID` | да | Канал алертов |
-| `RELIC_CHANNEL_ID` | да | Канал реликвии |
-| `RELIC_LINK_MESSAGE_ROLES` | нет | Ссылка на сообщение подписки на роли |
-| `RELIC_QRF_ROLE_ID` | нет | Роль QRF для пинга |
-| `SILVER_EMOJI_ID` | нет | ID эмодзи серебра |
-
-\* Без `GUILD` команды синхронизируются глобально (до ~1 часа задержки).
-
-Legacy-алиасы (если основные не заданы): `UPKEEP_PANEL_CHANNEL_ID`, `RELIC_NOTIFY_MESSAGE_URL`, `RELIC_NOTIFY_MESSAGE_ID`.
 
 ### Типовые операции
 
@@ -308,32 +337,20 @@ Legacy-алиасы (если основные не заданы): `UPKEEP_PANEL
 
 - Бэкап: скопировать `data/beacons.db` (при остановленном боте или с консистентной копией).
 - Полный сброс данных: остановить бота, удалить/переименовать `data/beacons.db`, запустить снова — таблицы создадутся пустыми, панели появятся заново.
+- Токен / секреты: только в `.env`, не коммитить в git.
+
+### Частые проблемы
+
+| Симптом | Что проверить |
+|---------|---------------|
+| Бот не стартует | `TOKEN` в `.env`, venv и `pip install -r requirements.txt` |
+| Нет slash-команд | `GUILD` = ID текущего сервера; бот приглашён с `applications.commands` |
+| Нет панелей | `PANEL_CHANNEL_ID`, права бота в канале |
+| `/beacon add` падает на ветке | права на threads в канале панелей |
+| Нет алертов | `ALERT_CHANNEL_ID`, доступ бота к каналу |
+| Реликвия молчит | `RELIC_CHANNEL_ID`; для пинга — роль и право Mention |
+| 429 / rate limit | бот сам разносит PATCH панелей с паузой `PANEL_PATCH_GAP_SECONDS` |
 
 ---
 
-## Структура проекта
-
-```
-main.py                 # точка входа
-bot.py                  # BeaconBot (Client + CommandTree + RelicTimer)
-config.py               # .env и игровые константы
-handlers/
-  beacons.py            # /beacon add, /ping
-  relic.py              # /relic start
-  season.py             # /season setup|delete
-  help.py               # /help
-  events.py             # on_ready, старт панелей и фоновых задач
-  views/                # кнопки, модалки, селекты панелей
-services/
-  database.py           # SQLite-схема и CRUD
-  beacon_service.py     # decay маяков, алерты, панель
-  upkeep_service.py     # расход серебра, панель
-  feed_service.py       # сытость, панель
-  relic_service.py      # RelicTimer + панель
-  season_service.py     # смена сезонов, панель
-  panel_service.py      # периодическое восстановление панелей
-utils/                  # логи, embed, права, форматирование
-data/beacons.db         # БД (создаётся при первом запуске)
-logs/                   # actions.log, errors.log
-.env.example            # шаблон переменных окружения
-```
+Игровые константы (расход топлива, длительность сезонов и т.д.) заданы в `config.py` и при смене баланса Anvil Empires правятся там.
