@@ -1,66 +1,339 @@
 # beaconMonitor
 
-Discord-бот для учёта маяков в Anvil Empires: топливо, прочность, приоритет, алерты и таймер реликвии.
+Discord-бот для гильдии в **Anvil Empires**: учёт маяков, содержания построек (серебро), кормёжки животных, таймера реликвии и игровых сезонов. Бот ведёт постоянные панели в канале, шлёт алерты при критических состояниях и переживает перезапуск за счёт SQLite.
 
-## Структура
+Язык UI — русский. Стек: Python 3.12, discord.py ≥ 2.5.2, SQLite, python-dotenv. Опционально — Docker.
 
-```
-main.py              # точка входа
-bot.py               # BeaconBot (Client + CommandTree + RelicTimer)
-config.py            # .env и игровые константы
-handlers/            # slash-команды и UI
-  beacons.py         # /beacon …
-  relic.py           # /relic …
-  events.py          # on_ready
-  views/             # View, Modal, Select
-services/
-  database.py        # SQLite
-  beacon_service.py  # decay, алерты, фоновый цикл
-  relic_service.py   # RelicTimer + relic_events
-utils/               # логи, embed, форматирование
-data/beacons.db      # база (создаётся при первом запуске)
-logs/                # actions.log, errors.log
-```
+---
 
-## Переменные окружения (.env)
+## Концепция
 
-| Переменная | Описание |
-|------------|----------|
-| `TOKEN` | Токен Discord-бота |
-| `GUILD` | ID гильдии для регистрации slash-команд |
-| `RELIC_CHANNEL_ID` | Канал уведомлений о реликвии |
-| `RELIC_LINK_MESSAGE_ROLES` | Ссылка на сообщение для подписки/отписки на роль уведомлений |
-| `RELIC_QRF_ROLE_ID` | Роль для пинга в предупреждении о реликвии |
-| `ALERT_CHANNEL_ID` | Единый канал алертов (маяки, upkeep, сытость, сезоны) |
-| `PANEL_CHANNEL_ID` | Канал постоянных панелей (Владения Новгорода, реликвия, сезоны); legacy `UPKEEP_PANEL_CHANNEL_ID` |
-| `SILVER_EMOJI_ID` | ID кастомного эмодзи серебра |
+Бот — операционный дашборд для войны и логистики:
 
-## Локальный запуск
+| Модуль | Задача |
+|--------|--------|
+| **Маяки** | Топливо и прочность, типы Фронтовой / Тыловой, алерты при низком запасе |
+| **Владения (upkeep)** | Объекты содержания: серебро/час и запас на складе |
+| **Кормёжка** | Лошади и ослы: сытость и алерты до «смерти» |
+| **Реликвия** | Таймер до появления, предупреждение за 10 минут, пинг роли QRF |
+| **Сезоны** | Цикл Lencten → Sumor → Harvest → Winter (по 24 ч), алерт при смене |
+
+### Как это работает
+
+1. При старте бот создаёт/восстанавливает **постоянные панели** в `PANEL_CHANNEL_ID`.
+2. Большая часть управления — кнопки на панелях (добавить, обновить, редактировать, удалить).
+3. Фоновые циклы пересчитывают расход и при необходимости пишут в `ALERT_CHANNEL_ID`.
+4. Состояние хранится в `data/beacons.db`; ID сообщений панелей тоже в БД — после рестарта панели находятся и обновляются.
+
+### Игровые правила (встроенные константы)
+
+**Маяки**
+
+- Максимум топлива: `30`, прочность: `100%`.
+- Типы: **Фронтовой** — 1 ед. топлива/час; **Тыловой** — 0.5 ед./час.
+- Прочность: ~`2.08%`/час при наличии топлива (`100/48`); без топлива — `360%`/час.
+- Предупреждение при ≤ `20%` топлива или прочности; критично при ≤ `5%`.
+
+**Upkeep** — запас часов = `серебро / серебро_в_час`; предупреждение при `< 3` ч.
+
+**Кормёжка** — с 100% сытости: лошадь опустеет за `1.5` ч, осёл за `3` ч; предупреждение при `< 20%`.
+
+**Реликвия** — по умолчанию `90` мин (мин. `15`, макс. `1440`); предупреждение за `10` мин.
+
+**Сезоны** — по `24` часа; война начинается в Harvest.
+
+---
+
+## Структура таблиц (SQLite)
+
+База: `data/beacons.db`. Таблицы создаются в `init_db()` при старте.
+
+### `beacons` — маяки
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| `id` | INTEGER PK | Внутренний ID |
+| `beacon_id` | TEXT UNIQUE | Имя маяка (напр. `NG-01`) |
+| `current_fuel` | REAL | Текущее топливо |
+| `current_lifetime` | REAL | Прочность, % |
+| `fuel_consumption_rate` | REAL | Часы на 1 ед. топлива (`1` / `2`) |
+| `last_updated` | TIMESTAMP | Момент последнего пересчёта |
+| `low_status_sent` | BOOLEAN | Уже отправлен ли low-алерт |
+| `message_link` | TEXT | Ссылка на сообщение с картинкой во ветке |
+| `username` | TEXT | Ник создателя (legacy) |
+| `image_url` | TEXT | (legacy) |
+| `created_by` | TEXT | Discord user ID создателя |
+
+### `users` — счётчики действий
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| `user_id` | TEXT PK | Discord ID |
+| `username` | TEXT | Ник |
+| `created` / `refueled` / `repaired` | INTEGER | Счётчики |
+
+### `relic_events` — таймеры реликвии
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| `id` | INTEGER PK | |
+| `channel_id` | INTEGER | Канал уведомлений |
+| `started_at` | TEXT | ISO-время старта |
+| `duration_minutes` | INTEGER | Длительность |
+| `warning_sent` | INTEGER | Отправлено ли предупреждение |
+| `status` | TEXT | `active` / `completed` / `cancelled` |
+| `ended_at` | TEXT | Когда завершён |
+| `started_by` | TEXT | Кто запустил |
+
+Индекс: `(channel_id, status)`.
+
+### `upkeep_objects` — объекты содержания
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| `id` | INTEGER PK | |
+| `name` | TEXT UNIQUE | Название |
+| `silver_per_hour` | REAL | Расход серебра в час |
+| `silver_amount` | REAL | Запас на складе |
+| `last_updated` | TEXT | ISO |
+| `low_warning_sent` | INTEGER | Флаг алерта |
+| `created_by` | TEXT | Автор |
+
+### `feed_animals` — животные
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| `id` | INTEGER PK | |
+| `name` | TEXT UNIQUE | Местоположение / имя |
+| `animal_type` | TEXT | `horse` / `donkey` |
+| `satiety` | REAL | Сытость 0–100 |
+| `last_updated` | TEXT | ISO |
+| `low_warning_sent` | INTEGER | Алерт по низкой сытости |
+| `death_notified` | INTEGER | Уведомление о «смерти» |
+| `created_by` | TEXT | Автор |
+
+### Панели (по одной строке `id = 1`)
+
+| Таблица | Поля | Назначение |
+|--------|------|------------|
+| `beacon_panel` | `channel_id`, `message_id`, `thread_id` | Панель маяков + ветка с картинками |
+| `upkeep_panel` | `channel_id`, `message_id` | Владения Новгорода |
+| `feed_panel` | `channel_id`, `message_id` | Кормёжка |
+| `relic_panel` | `channel_id`, `message_id` | Таймер реликвии |
+| `season_panel` | `channel_id`, `message_id` | Панель «Время» / сезоны |
+
+### `season_state`
+
+| Колонка | Тип | Описание |
+|---------|-----|----------|
+| `id` | INTEGER PK (`1`) | Singleton |
+| `season_key` | TEXT | `lencten` / `sumor` / `harvest` / `winter` |
+| `started_at` | TEXT | Начало текущего сезона |
+| `updated_at` | TEXT | Последнее обновление |
+
+---
+
+## Команды
+
+### Slash-команды
+
+| Команда | Кто | Описание |
+|---------|-----|----------|
+| `/beacon add` | все | Добавить маяк: ID, тип, опционально топливо/прочность, **обязательное изображение**. Картинка уходит во ветку панели маяков |
+| `/relic start [minutes]` | все | Запустить таймер реликвии (по умолчанию 90). Если таймер уже идёт — кнопки «Перезапустить» / «Отменить» |
+| `/season setup` | модерация | Начать сезон; можно указать уже прошедшие часы/минуты |
+| `/season delete` | модерация | Сбросить таймер сезонов |
+| `/ping` | все | Проверка живости |
+| `/help` | все | Краткая справка |
+
+> Slash `/upkeep` снят: управление только через панель.
+
+### Панели (кнопки)
+
+Панели появляются автоматически в `PANEL_CHANNEL_ID` после `on_ready`.
+
+**Панель маяков** — Добавить (подсказка про `/beacon add`), Обновить, Редактировать, Удалить, Очистить всё.
+
+**Владения (upkeep)** — Добавить / Обновить / Редактировать / Удалить / Очистить всё (модальные формы: название, серебро/час, запас).
+
+**Кормёжка** — то же для животных (тип: лошадь/осёл, местоположение, сытость).
+
+**Реликвия** — Запустить (если idle); Перезапустить / Отменить (если активен).
+
+**Сезоны** — отображение текущего сезона и таймера (настройка через `/season`).
+
+### Права
+
+| Действие | Кто может |
+|----------|-----------|
+| Добавление, редактирование «своих» объектов | любой участник |
+| Удаление своего объекта | автор (`created_by`) |
+| Удаление чужого, «Очистить всё» | Administrator / Manage Guild / Manage Channels (или Manage Messages для модерации) |
+| `/season setup\|delete` | Administrator / Manage Guild / Manage Messages |
+
+---
+
+## Гайд: поднять бота
+
+### 1. Discord Application
+
+1. [Discord Developer Portal](https://discord.com/developers/applications) → New Application.
+2. **Bot** → Reset Token → скопировать токен (`TOKEN`).
+3. Включить Privileged Gateway Intent: **Message Content Intent**.
+4. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`.
+5. Права бота (минимум):
+   - View Channels, Send Messages, Embed Links, Attach Files
+   - Manage Messages (по желанию)
+   - Create Public Threads, Send Messages in Threads, Manage Threads (для панели маяков)
+   - Mention Everyone / роли — если нужен пинг `RELIC_QRF_ROLE_ID`
+6. Пригласить бота на сервер. Скопировать ID сервера (`GUILD`) — Developer Mode → ПКМ по серверу → Copy Server ID.
+7. Аналогично скопировать ID каналов и роли.
+
+### 2. Каналы и роли
+
+| Переменная | Куда указать |
+|------------|--------------|
+| `PANEL_CHANNEL_ID` | Канал постоянных панелей (маяки, upkeep, кормёжка, реликвия, сезоны) |
+| `ALERT_CHANNEL_ID` | Канал алертов (низкое топливо, серебро, сытость, смена сезона) |
+| `RELIC_CHANNEL_ID` | Канал уведомлений о реликвии (старт / предупреждение / появление) |
+| `RELIC_QRF_ROLE_ID` | Роль для пинга в предупреждении «скоро реликвия» |
+| `RELIC_LINK_MESSAGE_ROLES` | Ссылка на сообщение с подпиской на роль уведомлений |
+| `SILVER_EMOJI_ID` | ID кастомного эмодзи серебра (опционально) |
+
+Убедитесь, что у бота есть доступ ко всем трём каналам (или совпадающим, если используете один).
+
+### 3. Локальный запуск
 
 ```bash
+# Клонировать / открыть репозиторий
+cd beaconMonitor
+
 python -m venv venv
-venv\Scripts\activate          # Windows
+
+# Windows
+venv\Scripts\activate
+
+# Linux / macOS
+# source venv/bin/activate
+
 pip install -r requirements.txt
+
+copy .env.example .env   # Windows
+# cp .env.example .env   # Linux / macOS
+```
+
+Заполнить `.env` (см. таблицу ниже), затем:
+
+```bash
 python main.py
 ```
 
-## Docker
+В консоли должно появиться `Бот … запущен!`. Slash-команды синхронизируются с гильдией из `GUILD` (обычно сразу видны в Discord).
+
+### 4. Docker
 
 ```bash
+# .env уже заполнен в корне проекта
 docker compose build
 docker compose up -d
 ```
 
-Тома: `./data`, `./logs`. Порт в compose: `8451`.
+Тома: `./data`, `./logs`. Порт в compose: `8451` (сам бот — исходящее WebSocket-соединение к Discord).
 
-## Команды
+Проверка логов:
 
-- `/beacon add|menu|refuel|status|edit|delete|clear`
-- `/relic start|cancel|status`
-- `/season setup|delete`
-- `/help` `/ping`
+```bash
+docker compose logs -f bot
+```
 
-## Логи
+### 5. Первый запуск — проверка
 
-- `logs/actions.log` — `beacon_actions`, `relic_actions`, `upkeep_actions`, `season_actions`, `feed_actions`, `system`
-- `logs/errors.log` — ошибки
+1. `/ping` → ответ `Pong`.
+2. В `PANEL_CHANNEL_ID` появились панели (маяки, владения, кормёжка, реликвия, время).
+3. `/beacon add` с картинкой → маяк в панели, изображение во ветке.
+4. Кнопки upkeep/feed → объект появляется на панели.
+5. `/relic start` → сообщение в `RELIC_CHANNEL_ID`, панель обновляется.
+6. `/season setup` (модератор) → панель сезонов показывает таймер.
+
+---
+
+## Администрирование
+
+### Переменные окружения
+
+Скопируйте `.env.example` → `.env`:
+
+| Переменная | Обязательно | Описание |
+|------------|-------------|----------|
+| `TOKEN` | да | Токен Discord-бота |
+| `GUILD` | да* | ID гильдии для быстрой синхронизации slash-команд |
+| `PANEL_CHANNEL_ID` | да | Канал панелей |
+| `ALERT_CHANNEL_ID` | да | Канал алертов |
+| `RELIC_CHANNEL_ID` | да | Канал реликвии |
+| `RELIC_LINK_MESSAGE_ROLES` | нет | Ссылка на сообщение подписки на роли |
+| `RELIC_QRF_ROLE_ID` | нет | Роль QRF для пинга |
+| `SILVER_EMOJI_ID` | нет | ID эмодзи серебра |
+
+\* Без `GUILD` команды синхронизируются глобально (до ~1 часа задержки).
+
+Legacy-алиасы (если основные не заданы): `UPKEEP_PANEL_CHANNEL_ID`, `RELIC_NOTIFY_MESSAGE_URL`, `RELIC_NOTIFY_MESSAGE_ID`.
+
+### Типовые операции
+
+| Задача | Как |
+|--------|-----|
+| Добавить маяк | `/beacon add` + изображение |
+| Поправить топливо/прочность | Панель маяков → Редактировать |
+| Удалить все маяки | Панель → Очистить всё (нужны права) |
+| Добавить постройку / животное | Кнопки на панелях upkeep / feed |
+| Запустить реликвию | `/relic start` или кнопка на панели |
+| Синхронизировать сезон с игрой | `/season setup` с уже прошедшим временем |
+| Сбросить сезон | `/season delete` |
+| Панель удалили вручную | Бот пересоздаст её (ensure каждые ~2 мин) |
+
+### Права бота в канале панелей
+
+Для ветки маяков нужны: **Просмотр канала**, **Писать в ветках**, **Прикреплять файлы**, **Встраивать ссылки**, **Создавать публичные ветки**, **Управлять ветками**.
+
+### Логи
+
+| Файл | Содержимое |
+|------|------------|
+| `logs/actions.log` | Действия: маяки, реликвия, upkeep, сезоны, кормёжка, system |
+| `logs/errors.log` | Ошибки и traceback |
+
+Ротация: до 10 MB, 5 бэкапов (`config.py`).
+
+### Бэкап и сброс
+
+- Бэкап: скопировать `data/beacons.db` (при остановленном боте или с консистентной копией).
+- Полный сброс данных: остановить бота, удалить/переименовать `data/beacons.db`, запустить снова — таблицы создадутся пустыми, панели появятся заново.
+
+---
+
+## Структура проекта
+
+```
+main.py                 # точка входа
+bot.py                  # BeaconBot (Client + CommandTree + RelicTimer)
+config.py               # .env и игровые константы
+handlers/
+  beacons.py            # /beacon add, /ping
+  relic.py              # /relic start
+  season.py             # /season setup|delete
+  help.py               # /help
+  events.py             # on_ready, старт панелей и фоновых задач
+  views/                # кнопки, модалки, селекты панелей
+services/
+  database.py           # SQLite-схема и CRUD
+  beacon_service.py     # decay маяков, алерты, панель
+  upkeep_service.py     # расход серебра, панель
+  feed_service.py       # сытость, панель
+  relic_service.py      # RelicTimer + панель
+  season_service.py     # смена сезонов, панель
+  panel_service.py      # периодическое восстановление панелей
+utils/                  # логи, embed, права, форматирование
+data/beacons.db         # БД (создаётся при первом запуске)
+logs/                   # actions.log, errors.log
+.env.example            # шаблон переменных окружения
+```
